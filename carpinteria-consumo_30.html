@@ -7,6 +7,111 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module">
+// ═══════════ FIREBASE ═══════════
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, setDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBRqTIoGvduDonA6cybmmqYRMGR-6Pu4L0",
+  authDomain: "consumo-materiales-19534.firebaseapp.com",
+  projectId: "consumo-materiales-19534",
+  storageBucket: "consumo-materiales-19534.firebasestorage.app",
+  messagingSenderId: "21754428945",
+  appId: "1:21754428945:web:00a1e47f78a13fa9b0fbb0"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ─── Guardar registro en Firestore ───
+window.fbGuardar = async function(registro) {
+  try {
+    const docRef = await addDoc(collection(db, "registros"), registro);
+    console.log("Registro guardado:", docRef.id);
+    return docRef.id;
+  } catch(e) {
+    console.error("Error guardando:", e);
+    alert("Error al guardar en la nube: " + e.message);
+    return null;
+  }
+};
+
+// ─── Cargar registros desde Firestore ───
+window.fbCargarRegistros = async function() {
+  try {
+    const snap = await getDocs(collection(db, "registros"));
+    return snap.docs.map(d => ({...d.data(), _fbId: d.id}));
+  } catch(e) {
+    console.error("Error cargando registros:", e);
+    return [];
+  }
+};
+
+// ─── Guardar OP en Firestore ───
+window.fbGuardarOP = async function(op) {
+  try {
+    await setDoc(doc(db, "ops", op.op), op);
+  } catch(e) {
+    console.error("Error guardando OP:", e);
+  }
+};
+
+// ─── Cargar OPs desde Firestore ───
+window.fbCargarOPs = async function() {
+  try {
+    const snap = await getDocs(collection(db, "ops"));
+    return snap.docs.map(d => d.data());
+  } catch(e) {
+    console.error("Error cargando OPs:", e);
+    return [];
+  }
+};
+
+// ─── Eliminar registro de Firestore ───
+window.fbEliminarRegistro = async function(fbId) {
+  try {
+    if(fbId) await deleteDoc(doc(db, "registros", fbId));
+  } catch(e) {
+    console.error("Error eliminando:", e);
+  }
+};
+
+// ─── Escuchar cambios en tiempo real ───
+window.fbEscuchar = function() {
+  onSnapshot(collection(db, "registros"), (snap) => {
+    DB.registros = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
+    if(typeof updMetrics === 'function') { updMetrics(); rReg(); rPlanif(); rComp(); }
+  });
+  onSnapshot(collection(db, "ops"), (snap) => {
+    if(snap.docs.length > 0) {
+      DB.ops = snap.docs.map(d => d.data());
+      if(typeof rAreas === 'function') rAreas();
+    }
+  });
+};
+
+// ─── Inicializar: cargar datos al abrir la app ───
+window.fbInit = async function() {
+  const indicator = document.getElementById('fb-status');
+  if(indicator) { indicator.textContent = '☁ Conectando...'; indicator.style.color = 'var(--amber-t)'; }
+  try {
+    const [regs, ops] = await Promise.all([fbCargarRegistros(), fbCargarOPs()]);
+    if(regs.length > 0) DB.registros = regs;
+    if(ops.length > 0) DB.ops = ops;
+    if(indicator) { indicator.textContent = '☁ En línea'; indicator.style.color = 'var(--green-t)'; }
+    fbEscuchar();
+    if(typeof updMetrics === 'function') { updMetrics(); rReg(); rPlanif(); rComp(); }
+    console.log("Firebase listo —", regs.length, "registros,", ops.length, "OPs");
+  } catch(e) {
+    if(indicator) { indicator.textContent = '☁ Sin conexión'; indicator.style.color = 'var(--red-t)'; }
+    console.error("Error Firebase init:", e);
+  }
+};
+
+// Esperar a que el DOM esté listo
+window.addEventListener('load', () => setTimeout(fbInit, 500));
+</script>
 <style>
 :root{
   --bg:#0F0F0D;--bg2:#171714;--bg3:#1E1E1A;
@@ -311,6 +416,7 @@ tr:hover td{background:var(--bg3);}
     <div class="fc g1">
       <button class="op-planif-btn" id="btn-planif-op" onclick="togPlanifOp()"><i class="ti ti-table"></i> Planificación</button>
       <button class="btn btn-ghost btn-sm" onclick="cambiarMaq()"><i class="ti ti-tool"></i> Máquina</button>
+      <span id="fb-status" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);padding:3px 8px;border-radius:6px;border:0.5px solid var(--border);">☁ —</span>
       <button class="btn btn-ghost btn-sm" onclick="logout()"><i class="ti ti-logout"></i></button>
     </div>
   </div>
@@ -1143,17 +1249,22 @@ function _ejecutarGuardar(justif){
   const motivo=cTipo==='recorte'?(document.getElementById('rmt').value==='Otro'?document.getElementById('rotrotxt').value:document.getElementById('rmt').value):'';
   const fecha=new Date().toLocaleDateString('es-CL');
   const m=cOP.materiales[cMatIdx];
-  DB.registros.push({area:cArea.id,op:cOP.op,modelo:cOP.modelo,color:cOP.color,grosor:cOP.grosor,sku:cOP.sku,
+  const reg={area:cArea.id,op:cOP.op,modelo:cOP.modelo,color:cOP.color,grosor:cOP.grosor,sku:cOP.sku,
     operario:cUser,maquina:cMaq,tipo:cTipo,motivo,sinAsignar:cOP.sinAsignar||false,obs:cOP.obs||'',
     justifDif:justif||'',
-    materiales:[{nombre:m.nombre,skuMat:m.skuMat,hojas:cCons.hojas,sobrante:cCons.sobrante,reutilizado:cCons.reutilizado||0,planificado:m.planificado}],fecha});
+    materiales:[{nombre:m.nombre,skuMat:m.skuMat,hojas:cCons.hojas,sobrante:cCons.sobrante,reutilizado:cCons.reutilizado||0,planificado:m.planificado}],fecha};
+  DB.registros.push(reg);
+  // Guardar en Firebase
+  if(typeof fbGuardar === 'function') fbGuardar(reg);
   Object.entries(cCons.opT||{}).forEach(([opKey,hojas])=>{
     if(opKey===cOP.op)return;
     const oOP=DB.ops.find(o=>o.op===opKey);if(!oOP)return;
     const oMat=oOP.materiales.find(x=>x.skuMat===m.skuMat)||oOP.materiales[0];if(!oMat)return;
-    DB.registros.push({area:cArea.id,op:oOP.op,modelo:oOP.modelo,color:oOP.color,grosor:oOP.grosor,sku:oOP.sku,
+    const regAuto={area:cArea.id,op:oOP.op,modelo:oOP.modelo,color:oOP.color,grosor:oOP.grosor,sku:oOP.sku,
       operario:cUser,maquina:cMaq,tipo:'normal',motivo:'Auto: lámina compartida',sinAsignar:false,autoRegistrado:true,
-      materiales:[{nombre:oMat.nombre,skuMat:oMat.skuMat,hojas,sobrante:0,reutilizado:0,planificado:oMat.planificado}],fecha});
+      materiales:[{nombre:oMat.nombre,skuMat:oMat.skuMat,hojas,sobrante:0,reutilizado:0,planificado:oMat.planificado}],fecha};
+    DB.registros.push(regAuto);
+    if(typeof fbGuardar === 'function') fbGuardar(regAuto);
   });
   document.getElementById('edet').textContent=cOP.op+' · '+cOP.modelo+' '+cOP.color+' · '+m.nombre;
   showStep('sexito');
@@ -1676,7 +1787,10 @@ function procArchivo(file){
         if(!opMap[op]){opMap[op]={area:areaRow,op,sku,modelo,color,grosor,cantidad:cant,fecha,materiales:[]};ops++;}
         if(nomMat){opMap[op].materiales.push({nombre:nomMat,skuMat,planificado:planif});mats++;}
       });
-      Object.values(opMap).forEach(o=>{const idx=DB.ops.findIndex(x=>x.op===o.op);if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);});
+      Object.values(opMap).forEach(o=>{const idx=DB.ops.findIndex(x=>x.op===o.op);if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);
+        // Guardar OP en Firebase
+        if(typeof fbGuardarOP === 'function') fbGuardarOP(o);
+      });
       const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
       const an=DB.areas.find(a=>a.id===excelAreaId)?.nombre||excelAreaId;
       historial.unshift({nombre:file.name,area:an,ops,mats,hora});
