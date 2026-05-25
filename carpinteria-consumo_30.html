@@ -3121,7 +3121,11 @@ function procArchivo(file, fechaProd){
 }
 
 function esDynamics(wb){
-  const ws=wb.Sheets[wb.SheetNames[0]];
+  // Formato 1: jerárquico con "No OP" en encabezado
+  // Formato 2: tabular con hoja "Data" y columnas NoOP, NoComponente, etc.
+  const sheetNames = wb.SheetNames;
+  if(sheetNames.includes('Data')) return true; // Formato tabular nuevo
+  const ws=wb.Sheets[sheetNames[0]];
   const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,blankrows:true});
   for(let i=0;i<30;i++){
     const row=rows[i]||[];
@@ -3168,72 +3172,100 @@ function procEstandar(wb,fileName,fechaProd){
 }
 
 function procDynamics(wb,fileName,fechaProd){
+  // Detectar sub-formato: tabular (hoja Data) o jerárquico
+  if(wb.SheetNames.includes('Data')){
+    procDynamicsTabular(wb,fileName,fechaProd);
+  } else {
+    procDynamicsJerarquico(wb,fileName,fechaProd);
+  }
+}
+
+// ── Formato tabular nuevo: hoja "Data" con columnas fijas ──
+function procDynamicsTabular(wb,fileName,fechaProd){
+  const ws=wb.Sheets['Data'];
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+  const catBySku={};
+  CATALOGO_MELAMINAS.forEach(m=>{catBySku[m.sku]=m;});
+  // Encabezados en fila 1: FechaVenc(0) Estado(1) NoOP(2) Modelo(3) Descripcion(4) ... NoComponente(11) NombreComponente(12) CompEsperados(13)
+  const opMap={};let ops=0,mats=0,errs=[];
+  rows.forEach((row,ri)=>{
+    if(ri===0) return; // saltar encabezado
+    const opId   = row[2]  ? String(row[2]).trim()  : null;
+    const modelo = row[3]  ? String(row[3]).trim()  : '';
+    const sku    = row[11] ? String(row[11]).trim() : '';
+    const nom    = row[12] ? String(row[12]).trim() : '';
+    const planif = row[13];
+    // Fecha de vencimiento de la fila (si no se proveyó fechaProd)
+    let fechaFila = fechaProd || '';
+    if(!fechaProd && row[0]){
+      if(row[0] instanceof Date || (typeof row[0]==='number')){
+        // XLSX puede devolver número serial o Date
+        const d = typeof row[0]==='number'
+          ? new Date(Math.round((row[0]-25569)*86400*1000))
+          : new Date(row[0]);
+        fechaFila = d.toLocaleDateString('es-CL');
+      } else {
+        fechaFila = String(row[0]).slice(0,10);
+      }
+    }
+    if(!opId||!sku||!nom) return;
+    if(!sku.startsWith('106')||!nom.toUpperCase().includes('MELAMINA')) return;
+    if(typeof planif!=='number'||planif<=0) return;
+    const mat=catBySku[sku];
+    const color=mat?mat.color:nom;
+    const grosor=mat?(mat.grosor||'').toLowerCase().replace(/\s+/g,''):'';
+    if(!opMap[opId]){
+      opMap[opId]={area:excelAreaId,op:opId,sku:opId,modelo,color:'',grosor:'',
+        cantidad:0,fecha:fechaFila,materiales:[]};
+      ops++;
+    }
+    if(!opMap[opId].color)  opMap[opId].color=color;
+    if(!opMap[opId].grosor) opMap[opId].grosor=grosor;
+    opMap[opId].materiales.push({nombre:nom,skuMat:sku,planificado:planif});
+    mats++;
+  });
+  finalizarCarga(opMap,ops,mats,errs,fileName,'Dynamics');
+}
+
+// ── Formato jerárquico original ──
+function procDynamicsJerarquico(wb,fileName,fechaProd){
   const ws=wb.Sheets[wb.SheetNames[0]];
   const catBySku={};
   CATALOGO_MELAMINAS.forEach(m=>{catBySku[m.sku]=m;});
-
   const ref=ws['!ref']||'A1:Z2000';
   const range=XLSX.utils.decode_range(ref);
   const maxRow=range.e.r;
-
   function celda(col,row){
     const addr=XLSX.utils.encode_cell({r:row,c:col});
     const cell=ws[addr];
     if(!cell||cell.v===null||cell.v===undefined) return null;
     return cell.v;
   }
-
-  // Buscar la fila donde está el encabezado "No OP" para saber desde dónde empezar
   let startRow=0;
   for(let r=0;r<=30;r++){
     const b=celda(1,r);
     if(b&&String(b).trim()==='No OP'){startRow=r+1;break;}
   }
-  // Si no encontró encabezado, empezar desde fila 1
   if(!startRow) startRow=1;
-
   let curOp=null,curModelo=null,curSkuComp=null,curNombreComp=null;
-  let pendingOpRow=null; // para manejar OPs en celdas combinadas
   const opMap={};let ops=0,mats=0,errs=[];
-
   for(let r=startRow;r<=maxRow;r++){
-    const colB=celda(1,r);
-    const colD=celda(3,r);
-    const colG=celda(6,r);
-    const colI=celda(8,r);
-    const colJ=celda(9,r);
-
-    // OP real (formato OP09247255 o OPG01704 o OPGS00364)
+    const colB=celda(1,r),colD=celda(3,r),colG=celda(6,r),colI=celda(8,r),colJ=celda(9,r);
     if(colB&&/^OP/i.test(String(colB).trim())&&String(colB).trim().length>3){
       curOp=String(colB).trim();curModelo=null;curSkuComp=null;curNombreComp=null;
     }
-    // Modelo
-    if(colD){
-      const d=String(colD).trim();
-      if(d&&d!=='Modelo'&&d!=='Descripción') curModelo=d;
-    }
-    // SKU componente
-    if(colG){
-      const g=String(colG).trim();
-      if(g&&g!=='No Componente'&&/^\d/.test(g)){curSkuComp=g;curNombreComp=null;}
-    }
-    // Nombre componente
-    if(colI&&curSkuComp){
-      const v=String(colI).trim();
-      if(v&&v!=='Nombre Componente') curNombreComp=v;
-    }
-    // Cantidad — col J (Consumo Esperados)
+    if(colD){const d=String(colD).trim();if(d&&d!=='Modelo'&&d!=='Descripción')curModelo=d;}
+    if(colG){const g=String(colG).trim();if(g&&g!=='No Componente'&&/^\d/.test(g)){curSkuComp=g;curNombreComp=null;}}
+    if(colI&&curSkuComp){const v=String(colI).trim();if(v&&v!=='Nombre Componente')curNombreComp=v;}
     if(colJ!==null&&typeof colJ==='number'&&colJ>0&&curSkuComp&&curOp){
-      const sku=String(curSkuComp);
-      const nom=(curNombreComp||'').toUpperCase();
+      const sku=String(curSkuComp),nom=(curNombreComp||'').toUpperCase();
       if(sku.startsWith('106')&&nom.includes('MELAMINA')){
         const mat=catBySku[sku];
         const color=mat?mat.color:nom;
         const grosor=mat?(mat.grosor||'').toLowerCase().replace(/\s+/g,''):'';
         if(!opMap[curOp]){
-          opMap[curOp]={area:excelAreaId,op:curOp,sku:curOp,modelo:curModelo||'',
-            color:'',grosor:'',cantidad:0,
-            fecha:fechaProd||new Date().toLocaleDateString('es-CL'),materiales:[]};
+          opMap[curOp]={area:excelAreaId,op:curOp,sku:curOp,modelo:curModelo||'',color:'',grosor:'',
+            cantidad:0,fecha:fechaProd||new Date().toLocaleDateString('es-CL'),materiales:[]};
           ops++;
         }
         if(!opMap[curOp].color)  opMap[curOp].color=color;
