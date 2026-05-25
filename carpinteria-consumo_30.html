@@ -567,6 +567,7 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-comp',this)"><i class="ti ti-chart-bar"></i> Comparativo</div>
         <div class="ni" onclick="showT('t-resumen',this)"><i class="ti ti-calendar-stats"></i> Resumen diario</div>
         <div class="ni" onclick="showT('t-ejecutivo',this)"><i class="ti ti-file-description"></i> Resumen ejecutivo</div>
+        <div class="ni" onclick="showT('t-exportar',this)"><i class="ti ti-table-export"></i> Exportar Excel</div>
         <p class="nlbl mt2">Gestión</p>
         <div class="ni" onclick="showT('t-sa',this)"><i class="ti ti-clock-exclamation"></i> Sin asignar<span id="sabadge" style="display:none;margin-left:auto;background:var(--amber-bg);color:var(--amber-t);border:0.5px solid var(--amber);font-size:10px;font-family:monospace;padding:1px 6px;border-radius:4px;"></span></div>
         <div class="ni" onclick="showT('t-excel',this)"><i class="ti ti-file-spreadsheet"></i> Cargar Excel</div>
@@ -657,18 +658,101 @@ tr:hover td{background:var(--bg3);}
           <!-- Preview del informe -->
           <div id="ej-preview"></div>
         </div>
+
+        <div class="stab" id="t-exportar">
+          <p class="ptitle">Exportar datos</p>
+          <p class="psub">Descargá los consumos en Excel filtrados por período</p>
+
+          <div class="card">
+            <p style="font-size:14px;font-weight:600;margin-bottom:12px;">Configurar exportación</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-bottom:1rem;">
+              <div>
+                <label class="lbl">Desde (fecha de producción)</label>
+                <select id="exp-desde"></select>
+              </div>
+              <div>
+                <label class="lbl">Hasta</label>
+                <select id="exp-hasta"></select>
+              </div>
+              <button class="btn btn-ghost" onclick="initExportar()"><i class="ti ti-refresh"></i></button>
+            </div>
+            <div id="exp-preview-info" style="display:none;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--r);padding:10px 14px;margin-bottom:1rem;font-size:13px;color:var(--text2);"></div>
+            <button class="btn btn-amber" onclick="exportarExcel()" id="btn-exportar">
+              <i class="ti ti-file-type-xls"></i> Descargar Excel
+            </button>
+          </div>
+
+          <div class="card">
+            <p style="font-size:13px;font-weight:600;margin-bottom:8px;">Columnas del archivo</p>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <span class="badge b-op">Fecha</span>
+              <span class="badge b-op">OP</span>
+              <span class="badge b-op">SKU</span>
+              <span class="badge b-op">Modelo</span>
+              <span class="badge b-op">Color</span>
+              <span class="badge b-op">Grosor</span>
+              <span class="badge b-op">Material</span>
+              <span class="badge b-op">SKU Material</span>
+              <span class="badge b-ok">Planificado (hjs)</span>
+              <span class="badge b-ok">Real (hjs)</span>
+              <span class="badge b-rec">Reutilizado</span>
+              <span class="badge b-rec">Sobrante</span>
+              <span class="badge b-rec">Diferencia (hjs)</span>
+              <span class="badge b-rec">Diferencia (%)</span>
+              <span class="badge b-maq">Estado</span>
+            </div>
+          </div>
+        </div>
         <div class="stab" id="t-sa"><p class="ptitle">Sin asignar</p><p class="psub">Registros pendientes de asignación</p><div id="sacont"></div></div>
         <div class="stab" id="t-excel">
           <p class="ptitle">Cargar planificación</p><p class="psub">Sube el Excel con las OPs del día</p>
-          <div class="card"><p style="font-size:14px;font-weight:600;margin-bottom:8px;">Área del archivo</p><div id="exabtns" class="fc g1" style="flex-wrap:wrap;"></div></div>
-          <label class="uz" for="exinput" ondragover="event.preventDefault();this.style.borderColor='var(--amber)'" ondragleave="this.style.borderColor=''" ondrop="hDrop(event)">
-            <i class="ti ti-file-spreadsheet" style="font-size:32px;color:var(--text3);display:block;margin-bottom:8px;"></i>
-            <p>Arrastrá o hacé clic para seleccionar</p>
-            <p style="font-size:11px;color:var(--text3);margin-top:4px;font-family:monospace;">.xlsx · .xls · .csv</p>
-            <input type="file" id="exinput" accept=".xlsx,.xls,.csv" onchange="cExcel(this)">
-          </label>
+
+          <!-- Paso 1: Área -->
+          <div class="card">
+            <p style="font-size:14px;font-weight:600;margin-bottom:8px;">
+              <span style="background:var(--amber-bg);color:var(--amber-t);border:0.5px solid var(--amber);border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-family:monospace;margin-right:8px;">1</span>
+              Selecciona el área
+            </p>
+            <div id="exabtns" class="fc g1" style="flex-wrap:wrap;"></div>
+          </div>
+
+          <!-- Paso 2: Archivo -->
+          <div class="card" id="ex-paso2" style="opacity:.45;pointer-events:none;transition:opacity .2s;">
+            <p style="font-size:14px;font-weight:600;margin-bottom:8px;">
+              <span style="background:var(--amber-bg);color:var(--amber-t);border:0.5px solid var(--amber);border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-family:monospace;margin-right:8px;">2</span>
+              Selecciona el archivo
+            </p>
+            <label class="uz" for="exinput" ondragover="event.preventDefault();this.style.borderColor='var(--amber)'" ondragleave="this.style.borderColor=''" ondrop="hDrop(event)" style="margin-bottom:0;">
+              <i class="ti ti-file-spreadsheet" style="font-size:32px;color:var(--text3);display:block;margin-bottom:8px;"></i>
+              <p>Arrastrá o hacé clic para seleccionar</p>
+              <p style="font-size:11px;color:var(--text3);margin-top:4px;font-family:monospace;">.xlsx · .xls · .csv</p>
+              <input type="file" id="exinput" accept=".xlsx,.xls,.csv" onchange="cExcel(this)">
+            </label>
+          </div>
+
+          <!-- Paso 3: Fecha + Confirmar -->
+          <div class="card" id="ex-paso3" style="display:none;">
+            <p style="font-size:14px;font-weight:600;margin-bottom:12px;">
+              <span style="background:var(--amber-bg);color:var(--amber-t);border:0.5px solid var(--amber);border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-family:monospace;margin-right:8px;">3</span>
+              Confirmar carga
+            </p>
+            <div id="ex-archivo-info" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;"></div>
+            <div style="margin-bottom:1rem;">
+              <label class="lbl">Fecha de producción de este programa <span style="color:var(--red-t);">*</span></label>
+              <input type="date" id="ex-fecha-prod" style="max-width:220px;">
+              <p style="font-size:11px;color:var(--text2);margin-top:5px;font-family:monospace;">Esta fecha se asignará a todas las OPs del archivo</p>
+            </div>
+            <div class="fc g1">
+              <button class="btn btn-amber" onclick="confirmarCargaExcel()"><i class="ti ti-upload"></i> Confirmar y cargar</button>
+              <button class="btn btn-ghost" onclick="cancelarCargaExcel()"><i class="ti ti-x"></i> Cancelar</button>
+            </div>
+          </div>
+
           <div id="exst"></div>
-          <div id="exhist" style="display:none;" class="card"><p style="font-size:14px;font-weight:600;margin-bottom:10px;">Cargados hoy</p><div class="dtw"><table><thead><tr><th>Archivo</th><th>Área</th><th>OPs</th><th>Mats</th><th>Hora</th></tr></thead><tbody id="thist"></tbody></table></div></div>
+          <div id="exhist" style="display:none;" class="card">
+            <p style="font-size:14px;font-weight:600;margin-bottom:10px;">Cargados hoy</p>
+            <div class="dtw"><table><thead><tr><th>Archivo</th><th>Área</th><th>OPs</th><th>Mats</th><th>Hora</th><th>Formato</th></tr></thead><tbody id="thist"></tbody></table></div>
+          </div>
           <div class="note"><i class="ti ti-lock"></i> Cantidades planificadas solo visibles aquí.</div>
         </div>
         <div class="stab" id="t-maq">
@@ -697,6 +781,7 @@ tr:hover td{background:var(--bg3);}
         <div class="stab" id="t-almacen">
           <div class="fb" style="margin-bottom:1.5rem;flex-wrap:wrap;gap:10px;">
             <div><p class="ptitle">Almacén de sobrantes</p><p class="psub">Pedazos guardados disponibles para reutilizar</p></div>
+            <button class="btn btn-amber btn-sm" onclick="togFormSobrante()"><i class="ti ti-plus"></i> Agregar pedazo</button>
             <div class="fc g1">
               <select id="alm-filtro-est" onchange="rAlmacen()" style="max-width:150px;">
                 <option value="disponible">Disponibles</option>
@@ -704,6 +789,37 @@ tr:hover td{background:var(--bg3);}
                 <option value="">Todos</option>
               </select>
               <input type="text" id="alm-filtro-q" placeholder="Color o grosor..." oninput="rAlmacen()" style="max-width:160px;">
+            </div>
+          </div>
+          <!-- Formulario ingreso manual -->
+          <div id="form-sob" style="display:none;" class="card" style="margin-bottom:1rem;">
+            <p style="font-size:14px;font-weight:600;margin-bottom:12px;"><i class="ti ti-stack-2" style="font-size:14px;vertical-align:-2px;margin-right:6px;"></i>Agregar pedazo al almacén</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+              <div>
+                <label class="lbl">Grosor</label>
+                <select id="fsob-grosor" onchange="actualizarColoresCatalogo()">
+                  <option value="">— selecciona —</option>
+                </select>
+              </div>
+              <div>
+                <label class="lbl">Color / Material</label>
+                <select id="fsob-color">
+                  <option value="">— primero elige grosor —</option>
+                </select>
+              </div>
+              <div id="fsob-mat-info" style="display:none;">
+                <label class="lbl">Material identificado</label>
+                <div id="fsob-mat-det" style="font-size:12px;color:var(--green-t);font-family:'DM Mono',monospace;padding:9px 12px;background:var(--green-bg);border:0.5px solid var(--green);border-radius:var(--r);"></div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+              <div><label class="lbl">Alto (cm)</label><input type="number" id="fsob-alto" placeholder="Ej: 90" min="1"></div>
+              <div><label class="lbl">Ancho (cm)</label><input type="number" id="fsob-ancho" placeholder="Ej: 120" min="1"></div>
+              <div><label class="lbl">Ubicación</label><input type="text" id="fsob-ubic" placeholder="Ej: Estante A"></div>
+            </div>
+            <div class="fc g1">
+              <button class="btn btn-amber" onclick="agregarSobrante()"><i class="ti ti-device-floppy"></i> Guardar</button>
+              <button class="btn btn-ghost" onclick="togFormSobrante()">Cancelar</button>
             </div>
           </div>
           <div id="alm-cont"></div>
@@ -979,7 +1095,7 @@ function rMatList(){
     d.className='mitem'+(hasReg?' has':''); d.id='mi'+i;
     d.innerHTML='<div class="mchk" id="mc'+i+'"></div>'+
       '<div style="flex:1;"><div style="font-size:14px;font-weight:500;">'+m.nombre+'</div>'+
-      '<div style="font-size:11px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+m.skuMat+(hasReg?' · reg: '+reg[m.skuMat].hojas.toFixed(2)+' hjs':'')+'</div></div>'+
+      '<div style="font-size:11px;color:var(--text2);font-family:monospace;">'+m.skuMat+(hasReg?' · reg: '+reg[m.skuMat].hojas.toFixed(2)+' hjs':'')+'</div></div>'+
       '<span class="badge '+(hasReg?'b-ok':'b-pend')+'">'+(hasReg?'Con registro':'Pendiente')+'</span>';
     d.onclick=()=>{
       document.querySelectorAll('.mitem.sel').forEach(e=>e.classList.remove('sel'));
@@ -999,7 +1115,7 @@ function irS3(){
   const blk=document.createElement('div'); blk.className='lblock';
   blk.innerHTML='<div class="lblock-h"><div class="fc g1"><span style="font-size:13px;font-weight:500;">'+m.nombre+'</span>'+
     '<span class="badge b-op">'+m.skuMat+'</span></div>'+
-    '<span style="font-size:12px;font-family:\'DM Mono\',monospace;color:var(--amber-t);" id="ltotal">0.000 hojas</span></div>'+
+    '<span style="font-size:12px;font-family:monospace;color:var(--amber-t);" id="ltotal">0.000 hojas</span></div>'+
     '<div class="lblock-b"><div id="lwcont"></div>'+
     '<div class="addlam" onclick="addLam()"><i class="ti ti-plus"></i> Agregar otra lámina</div></div>';
   cont.appendChild(blk);
@@ -1025,10 +1141,10 @@ function addLam(){
   w.innerHTML=
     '<div class="fb" style="margin-bottom:8px;flex-wrap:wrap;gap:6px;">'+
       '<div class="fc g1" style="flex-wrap:wrap;">'+
-        '<span style="font-size:12px;font-family:\'DM Mono\',monospace;color:var(--text2);">Lámina '+lid+'</span>'+
+        '<span style="font-size:12px;font-family:monospace;color:var(--text2);">Lámina '+lid+'</span>'+
         '<div class="ttog"><button id="tbn'+lid+'" class="tbtn tn" onclick="setTLam('+lid+',\'nueva\')">Nueva</button>'+
         '<button id="tbr'+lid+'" class="tbtn" onclick="setTLam('+lid+',\'reut\')"><i class="ti ti-recycle" style="font-size:11px;vertical-align:-1px;"></i> Reutilizada</button></div>'+
-        '<span id="rlbl'+lid+'" style="display:none;font-size:10px;font-family:\'DM Mono\',monospace;background:var(--wood-bg);color:var(--wood-t);border:0.5px solid var(--wood);padding:2px 7px;border-radius:4px;">sobrante · sin costo</span>'+
+        '<span id="rlbl'+lid+'" style="display:none;font-size:10px;font-family:monospace;background:var(--wood-bg);color:var(--wood-t);border:0.5px solid var(--wood);padding:2px 7px;border-radius:4px;">sobrante · sin costo</span>'+
         '<div class="lleg" id="leg'+lid+'"></div>'+
       '</div>'+
       '<div class="flex g1">'+btns+'</div>'+
@@ -1037,8 +1153,8 @@ function addLam(){
       '<canvas id="cv'+lid+'" class="lcanvas" width="'+MLW+'" height="'+MLH+'"></canvas>'+
     '</div>'+
     '<div class="fb" style="margin-bottom:6px;">'+
-      '<span style="font-size:12px;font-family:\'DM Mono\',monospace;color:var(--text2);" id="inst'+lid+'">Dibujando <strong style="color:var(--amber-t);">'+cOP.op+' · Mod.'+cOP.modelo+' '+cOP.color+'</strong> — arrastrá o usá los atajos</span>'+
-      '<span style="font-size:11px;font-family:\'DM Mono\',monospace;color:var(--text3);">Libre: <strong id="free'+lid+'">100%</strong></span>'+
+      '<span style="font-size:12px;font-family:monospace;color:var(--text2);" id="inst'+lid+'">Dibujando <strong style="color:var(--amber-t);">'+cOP.op+' · Mod.'+cOP.modelo+' '+cOP.color+'</strong> — arrastrá o usá los atajos</span>'+
+      '<span style="font-size:11px;font-family:monospace;color:var(--text3);">Libre: <strong id="free'+lid+'">100%</strong></span>'+
     '</div>'+
     '<div class="lfracs" id="lfracs'+lid+'">'+
       [['⅛ 12%',0.125],['¼ 25%',0.25],['⅓ 33%',0.333],['½ 50%',0.5],['⅔ 67%',0.667],['¾ 75%',0.75],['⅞ 87%',0.875],['Completa',1.0]]
@@ -1050,11 +1166,11 @@ function addLam(){
     '</div>'+
     '<div class="cpanel" id="cp'+lid+'">'+
       '<p style="font-size:12px;font-weight:500;margin-bottom:4px;">Buscar otra OP con mismo color/grosor</p>'+
-      '<p style="font-size:11px;color:var(--amber-t);font-family:\'DM Mono\',monospace;margin-bottom:8px;">Color: '+cOP.color+' · Grosor: '+cOP.grosor+'</p>'+
+      '<p style="font-size:11px;color:var(--amber-t);font-family:monospace;margin-bottom:8px;">Color: '+cOP.color+' · Grosor: '+cOP.grosor+'</p>'+
       '<div style="position:relative;margin-bottom:8px;"><i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--text3);pointer-events:none;"></i>'+
       '<input type="text" id="ci'+lid+'" placeholder="OP, modelo..." style="padding:8px 10px 8px 32px;font-size:13px;" oninput="fComp('+lid+')" autocomplete="off"></div>'+
       '<div class="cres" id="cr'+lid+'"></div>'+
-      '<div id="cf'+lid+'" style="display:none;background:var(--green-bg);border:0.5px solid var(--green);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--green-t);font-family:\'DM Mono\',monospace;margin-bottom:6px;"></div>'+
+      '<div id="cf'+lid+'" style="display:none;background:var(--green-bg);border:0.5px solid var(--green);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--green-t);font-family:monospace;margin-bottom:6px;"></div>'+
       '<button onclick="setSob('+lid+')" style="font-size:11px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;background:var(--bg3);color:var(--text2);"><i class="ti ti-recycle" style="font-size:12px;vertical-align:-1px;"></i> Zona sobrante</button>'+
     '</div>'+
     '<div id="lr'+lid+'" style="display:none;margin-top:8px;background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;padding:10px 12px;"></div>';
@@ -1141,15 +1257,15 @@ function fComp(lid){
   const lam=GL(lid);if(!lam)return;
   const cands=DB.ops.filter(o=>o.area===cArea.id&&o.color===cOP.color&&o.grosor===cOP.grosor&&o.op!==cOP.op)
     .filter(o=>!q||o.op.toLowerCase().includes(q)||o.modelo.toLowerCase().includes(q));
-  if(!cands.length){cont.innerHTML='<div style="padding:10px;text-align:center;font-size:12px;color:var(--text3);font-family:\'DM Mono\',monospace;">Sin OPs con mismo color y grosor</div>';return;}
+  if(!cands.length){cont.innerHTML='<div style="padding:10px;text-align:center;font-size:12px;color:var(--text3);font-family:monospace;">Sin OPs con mismo color y grosor</div>';return;}
   const ya=new Set((lam.zonas||[]).filter(z=>z.tipo==='op').map(z=>z.opKey));
   cont.innerHTML='';
   cands.forEach(op=>{
     const activa=lam.opActual&&lam.opActual.opKey===op.op;
     const d=document.createElement('div');d.className='citem'+(activa?' act':'');
-    d.innerHTML='<div><div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);">'+op.op+' · '+op.sku+'</div>'+
+    d.innerHTML='<div><div style="font-family:monospace;font-size:11px;color:var(--text2);">'+op.op+' · '+op.sku+'</div>'+
       '<div style="font-size:13px;font-weight:500;">Mod. '+op.modelo+' · '+op.color+' · '+op.grosor+'</div>'+
-      '<div style="font-size:11px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+op.cantidad+' uds'+(op.fecha?' · '+op.fecha:'')+'</div></div>'+
+      '<div style="font-size:11px;color:var(--text2);font-family:monospace;">'+op.cantidad+' uds'+(op.fecha?' · '+op.fecha:'')+'</div></div>'+
       (ya.has(op.op)?'<span class="badge b-ok">Ya dibujada</span>':'<span class="badge b-pend">Asignar</span>');
     d.onclick=()=>selCOP(lid,op.op);
     cont.appendChild(d);
@@ -1243,7 +1359,7 @@ function updLRes(lid){
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:.5px solid var(--border);font-size:12px;">'+
       '<div class="fc" style="gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:'+c.s+';display:inline-block;flex-shrink:0;"></span>'+
       '<span>'+(d.tipo==='sobrante'?'Sobrante':opKey)+'</span>'+(d.tipo!=='sobrante'?'<span style="color:var(--text2);font-size:11px;">'+d.label+'</span>':'')+
-      '</div><div><span style="font-family:\'DM Mono\',monospace;color:var(--amber-t);">'+d.pct.toFixed(1)+'%</span>'+
+      '</div><div><span style="font-family:monospace;color:var(--amber-t);">'+d.pct.toFixed(1)+'%</span>'+
       (d.tipo!=='sobrante'?'<span style="color:var(--text2);font-size:11px;margin-left:6px;">'+(d.pct/100).toFixed(3)+' hjs</span>':'')+'</div></div>';
   }).join('');
 }
@@ -1292,11 +1408,11 @@ function irS4(){
   html+='</div>';
   const otras=Object.entries(cCons.opT||{}).filter(([op])=>op!==cOP.op).map(([op,h])=>op+': '+h.toFixed(3)+' hjs').join(', ')||'—';
   html+='<div class="dtw"><table><thead><tr><th>Material</th><th>Hojas nuevas</th><th>Reutilizadas</th><th>Sobrante</th><th>Otras OPs</th></tr></thead><tbody>'+
-    '<tr><td>'+m.nombre+'<br><span style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
-    '<td style="font-family:\'DM Mono\',monospace;color:var(--amber-t);">'+cCons.hojas.toFixed(3)+'</td>'+
-    '<td style="font-family:\'DM Mono\',monospace;color:var(--wood-t);">'+(cCons.reutilizado>0?cCons.reutilizado.toFixed(3):'—')+'</td>'+
-    '<td style="font-family:\'DM Mono\',monospace;color:var(--text2);">'+(cCons.sobrante>0?cCons.sobrante.toFixed(3):'—')+'</td>'+
-    '<td style="font-size:11px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+otras+'</td></tr>'+
+    '<tr><td>'+m.nombre+'<br><span style="font-family:monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
+    '<td style="font-family:monospace;color:var(--amber-t);">'+cCons.hojas.toFixed(3)+'</td>'+
+    '<td style="font-family:monospace;color:var(--wood-t);">'+(cCons.reutilizado>0?cCons.reutilizado.toFixed(3):'—')+'</td>'+
+    '<td style="font-family:monospace;color:var(--text2);">'+(cCons.sobrante>0?cCons.sobrante.toFixed(3):'—')+'</td>'+
+    '<td style="font-size:11px;color:var(--text2);font-family:monospace;">'+otras+'</td></tr>'+
     '</tbody></table></div>';
   document.getElementById('rcard').innerHTML=html;
   showStep('s4');
@@ -1432,9 +1548,9 @@ function rPlanifOp(){
     const estado=matReg===0?'pendiente':matReg===matTotal?'completo':'parcial';
     const estBadge=estado==='completo'?'<span class="badge b-ok">Completo</span>':estado==='parcial'?'<span class="badge b-rec">Parcial</span>':'<span class="badge b-pend">Pendiente</span>';
     hdr.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
-      '<span style="font-family:\'DM Mono\',monospace;font-size:12px;color:var(--amber-t);">'+op.op+'</span>'+
+      '<span style="font-family:monospace;font-size:12px;color:var(--amber-t);">'+op.op+'</span>'+
       '<span style="font-size:13px;font-weight:500;">Mod. '+op.modelo+' · '+op.color+' · '+op.grosor+'</span>'+
-      (op.fecha?'<span style="font-size:10px;font-family:\'DM Mono\',monospace;color:var(--text3);">'+op.fecha+'</span>':'')+
+      (op.fecha?'<span style="font-size:10px;font-family:monospace;color:var(--text3);">'+op.fecha+'</span>':'')+
       estBadge+'</div>'+
       '<div style="width:100px;"><div class="op-pb"><div class="op-pf '+estado+'" style="width:'+pct+'%"></div></div>'+
       '<div class="op-pl">'+matReg+'/'+matTotal+' mats · '+pct+'%</div></div>';
@@ -1449,11 +1565,11 @@ function rPlanifOp(){
       const barColor=avPct>110?'var(--red-t)':avPct>=80?'var(--green-t)':'var(--amber-t)';
       return '<div class="planif-op-row">'+
         '<div><div style="font-weight:500;font-size:13px;">'+m.nombre+'</div>'+
-        '<div style="font-size:11px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+m.skuMat+'</div></div>'+
-        '<div style="font-family:\'DM Mono\',monospace;color:'+(tR?'var(--amber-t)':'var(--text3)')+';">'+(tR?rd.hojas.toFixed(2)+' hjs':'—')+'</div>'+
+        '<div style="font-size:11px;color:var(--text2);font-family:monospace;">'+m.skuMat+'</div></div>'+
+        '<div style="font-family:monospace;color:'+(tR?'var(--amber-t)':'var(--text3)')+';">'+(tR?rd.hojas.toFixed(2)+' hjs':'—')+'</div>'+
         '<div>'+
           '<div class="pop-prog"><div class="pop-prog-f" style="width:'+avPct+'%;background:'+barColor+';"></div></div>'+
-          '<div style="font-size:10px;font-family:\'DM Mono\',monospace;color:var(--text2);margin-top:2px;">'+(tR?avPct+'%':'—')+'</div>'+
+          '<div style="font-size:10px;font-family:monospace;color:var(--text2);margin-top:2px;">'+(tR?avPct+'%':'—')+'</div>'+
         '</div>'+
         '</div>';
     }).join('');
@@ -2012,6 +2128,41 @@ function buildPDFHTML(d, areaNom, hoy){
 // DB.sobrantes: [{id, color, grosor, pct, alto, ancho, ubicacion,
 //                operario, maquina, fecha, op, estado:'disponible'|'usado',
 //                usadoEn, usadoPor}]
+
+// ═══════════ CATÁLOGO DE MELAMINAS ═══════════
+const CATALOGO_MELAMINAS = [{"sku": "10601001", "nombre": "MELAMINA ARCE MAPLE 19 MM", "color": "Arce Maple", "grosor": "19MM"}, {"sku": "10601002", "nombre": "MELAMINA MAPLE ARCE 12 MM", "color": "Maple Arce", "grosor": "12MM"}, {"sku": "10601003", "nombre": "MELAMINA GRAFITO 12 MM", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601004", "nombre": "MELAMINA GRAFITO 19 MM", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601005", "nombre": "MELAMINA GRAFITO 28 MM", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601006", "nombre": "MELAMINA GRIS 12 MM", "color": "Gris", "grosor": "12MM"}, {"sku": "10601007", "nombre": "MELAMINA GRIS 28 MM", "color": "Gris", "grosor": "28MM"}, {"sku": "10601008", "nombre": "MELAMINA GRIS 19 MM", "color": "Gris", "grosor": "19MM"}, {"sku": "10601009", "nombre": "MELAMINA ARCE MAPLE 16 MM", "color": "Arce Maple", "grosor": null}, {"sku": "10601010", "nombre": "MELAMINA CEREZO 16 MM", "color": "Cerezo", "grosor": null}, {"sku": "10601011", "nombre": "MELAMINA NOGAL NEO 16 MM", "color": "Nogal Neo", "grosor": null}, {"sku": "10601012", "nombre": "MELAMINA ARCE MAPLE 28 MM", "color": "Arce Maple", "grosor": "28MM"}, {"sku": "10601013", "nombre": "MELAMINA CEREZO 12 MM", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601014", "nombre": "MELAMINA CEREZO 19 MM", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601015", "nombre": "MELAMINA CEREZO 28 MM", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601016", "nombre": "MELAMINA LUXOR 19 MM", "color": "Luxor", "grosor": "19MM"}, {"sku": "10601017", "nombre": "MELAMINA ROBLE PLATA 28 MM", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601018", "nombre": "MELAMINA ROBLE PLATA 19 MM", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601019", "nombre": "MELAMINA ROBLE PLATA 12 MM", "color": "Roble Plata", "grosor": "12MM"}, {"sku": "10601020", "nombre": "MELAMINA BLANCO FROSTY 16 MM", "color": "Blanco Frosty", "grosor": null}, {"sku": "10601021", "nombre": "MELAMINA WENGUE 16 MM", "color": "Wengue", "grosor": null}, {"sku": "10601022", "nombre": "MELAMINA OYAMEL 16 MM", "color": "Oyamel", "grosor": null}, {"sku": "10601023", "nombre": "MELAMINA ROBLE TABACO 16 MM", "color": "Roble Tabaco", "grosor": null}, {"sku": "10601026", "nombre": "MELAMINA ANAHUAC 12MM ÉBANO", "color": "Anahuac", "grosor": "12MM"}, {"sku": "10601027", "nombre": "MELAMINA MONARCA 12MM EUCALIPT", "color": "Monarca", "grosor": "12MM"}, {"sku": "10601028", "nombre": "MELAMINA ENCINO POLAR 12 MM", "color": "Encino Polar", "grosor": "12MM"}, {"sku": "10601029", "nombre": "MELAMINA ANAHUAC 16MM", "color": "Anahuac", "grosor": null}, {"sku": "10601031", "nombre": "MELAMINA MONARCA 16MM EUCALIPT", "color": "Monarca", "grosor": null}, {"sku": "10601033", "nombre": "MELAMINA BLANCO FROSTY 12 MM", "color": "Blanco Frosty", "grosor": "12MM"}, {"sku": "10601034", "nombre": "MELAMINA BLANCO FROSTY 19 MM", "color": "Blanco Frosty", "grosor": "19MM"}, {"sku": "10601035", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601036", "nombre": "MELAMINA OYAMEL 19 MM", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601037", "nombre": "MELAMINA ENCINO POLAR 16 MM", "color": "Encino Polar", "grosor": null}, {"sku": "10601038", "nombre": "MELAMINA OYAMEL 12 MM", "color": "Oyamel", "grosor": "12MM"}, {"sku": "10601039", "nombre": "MELAMINA  ARCE 12 MM CARB II", "color": "Arce", "grosor": "12MM"}, {"sku": "10601040", "nombre": "MELAMINA ARCE 19 MM CARB II", "color": "Arce", "grosor": "19MM"}, {"sku": "10601041", "nombre": "MELAMINA ROBLE PLATA 19MM CARB", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601042", "nombre": "MELAMINA OYAMEL 19 MM CARB II", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601045", "nombre": "MELAMINA MONARCA 28MM EUCALIPTO", "color": "Monarca", "grosor": "28MM"}, {"sku": "10601046", "nombre": "MELAMINA WENGUE 214 19 MM 2 CA", "color": "Wengue 214", "grosor": "19MM"}, {"sku": "10601047", "nombre": "MELAMINA WENGUE 214 28 MM 2 CA", "color": "Wengue 214", "grosor": "28MM"}, {"sku": "10601048", "nombre": "MELAMINA OYAMEL DE 28 MM", "color": "Oyamel De", "grosor": "28MM"}, {"sku": "10601049", "nombre": "MELAMINA ANAHUAC 28MM", "color": "Anahuac", "grosor": "28MM"}, {"sku": "10601050", "nombre": "MELAMINA NOGAL NEO 12 MM", "color": "Nogal Neo", "grosor": "12MM"}, {"sku": "10601051", "nombre": "MELAMINA NOGAL NEO 19 MM", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601052", "nombre": "MELAMINA NOGAL NEO 28 MM", "color": "Nogal Neo", "grosor": "28MM"}, {"sku": "10601053", "nombre": "MELAMINA ROBLE TABACO 19 MM", "color": "Roble Tabaco", "grosor": "19MM"}, {"sku": "10601054", "nombre": "MELAMINA ROBLE TABACO 28 MM", "color": "Roble Tabaco", "grosor": "28MM"}, {"sku": "10601055", "nombre": "MELAMINA ROBLE TABACO 12 MM", "color": "Roble Tabaco", "grosor": "12MM"}, {"sku": "10601056", "nombre": "MELAMINA ARCE MASISA 19 MM", "color": "Arce Masisa", "grosor": "19MM"}, {"sku": "10601057", "nombre": "MELAMINA GRAFITO 12 MM CARB II", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601058", "nombre": "MELAMINA GRAFITO 19 MM CARB II", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601059", "nombre": "MELAMINA GRAFITO 28 MM CARB II", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601060", "nombre": "MELAMINA ARCE 28 MM CARB II", "color": "Arce", "grosor": "28MM"}, {"sku": "10601062", "nombre": "MELAMINA ROBLE PLATA 28MM CARB", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601063", "nombre": "MELAMINA CEREZO 12 MM CARB II", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601064", "nombre": "MELAMINA CEREZO 19 MM CARB II", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601065", "nombre": "MELAMINA CEREZO 28 MM CARB II", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601067", "nombre": "MELAMINA GRIS 19 MM CARB II", "color": "Gris", "grosor": "19MM"}, {"sku": "10601069", "nombre": "MELAMINA WENGUE 19 MM", "color": "Wengue", "grosor": "19MM"}, {"sku": "10601070", "nombre": "MELAMINA SOLAR OAK G25 4 X9 FT", "color": "Solar Oak G25 4 X9 Ft", "grosor": null}, {"sku": "10601071", "nombre": "MELAMINA BILTMORE CHERRY 4 X 9", "color": "Biltmore Cherry 4 X 9", "grosor": null}, {"sku": "10601072", "nombre": "MELAMINA AMBER CHERRY 4 x 9 ft", "color": "Amber Cherry 4 X 9 Ft", "grosor": null}, {"sku": "10601073", "nombre": "MELAMINA KENSINGTON MAPLE 4X9", "color": "Kensington Maple 4X9", "grosor": null}, {"sku": "10601074", "nombre": "MELAMINA CAFELLE 4 X 9 FT", "color": "Cafelle 4 X 9 Ft", "grosor": null}, {"sku": "10601075", "nombre": "MELAMINA WILLIAMSBURG CHERRY", "color": "Williamsburg Cherry", "grosor": null}, {"sku": "10601076", "nombre": "MELAMINA TUSCAN WALNUT 4 X 9", "color": "Tuscan Walnut 4 X 9", "grosor": null}, {"sku": "10601077", "nombre": "MELAMINA TABACO 12 MM CARB II", "color": "Tabaco", "grosor": "12MM"}, {"sku": "10601078", "nombre": "MELAMINA TABACO 19 MM CARB II", "color": "Tabaco", "grosor": "19MM"}, {"sku": "10601079", "nombre": "MELAMINA TABACO 28 MM CARB II", "color": "Tabaco", "grosor": "28MM"}, {"sku": "10601081", "nombre": "MELAMINA AFRICAN WALNUT 4 X 9", "color": "African Walnut 4 X 9", "grosor": null}, {"sku": "10601082", "nombre": "MELAMINA BLANCO 19 MM CARB II", "color": "Blanco", "grosor": "19MM"}, {"sku": "10601089", "nombre": "MELAMINA P. CENIZA 19 MM", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601090", "nombre": "MELAMINA P. CENIZA 28 MM", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601091", "nombre": "MELAMINA WENGUE 28 MM", "color": "Wengue", "grosor": "28MM"}, {"sku": "10601092", "nombre": "MELAMINA P. CENIZA 12MM", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601093", "nombre": "MELAMINA WENGUE 12 MM", "color": "Wengue", "grosor": "12MM"}, {"sku": "10601095", "nombre": "MELAMINA P. CENIZA 12MM CARBII", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601096", "nombre": "MELAMINA P. CENIZA 19MM CARBII", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601097", "nombre": "MELAMINA P. CENIZA 28MM CARBII", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601098", "nombre": "MELAMINA NOGAL NEO19 MM CARBII", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601099", "nombre": "MELAMINA P. CENIZA 16 MM", "color": "P. Ceniza", "grosor": null}, {"sku": "10601100", "nombre": "MELAMINA NUUK SENSE 16 MM", "color": "Nuuk Sense", "grosor": null}, {"sku": "10601101", "nombre": "MELAMINA GRIS CLARO 19 MM", "color": "Gris Claro", "grosor": "19MM"}, {"sku": "10601102", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601104", "nombre": "MELAMINA ANAHUAC 19MM ÉBANO", "color": "Anahuac", "grosor": "19MM"}, {"sku": "10601105", "nombre": "MELAMINA MONARCA 19MM EUCALIPTO", "color": "Monarca", "grosor": "19MM"}, {"sku": "10601106", "nombre": "MELAMINA ENCINO POLAR 19 MM", "color": "Encino Polar", "grosor": "19MM"}, {"sku": "10601107", "nombre": "MELAMINA ENCINO POLAR 28 MM", "color": "Encino Polar", "grosor": "28MM"}, {"sku": "10601108", "nombre": "MELAMINA NEGRA 19MM", "color": "Negra", "grosor": "19MM"}, {"sku": "10601110", "nombre": "MELAMINA SUPERPAN 91B ROBLE RE", "color": "Superpan 91B Roble Re", "grosor": null}, {"sku": "10601111", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601112", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601113", "nombre": "MELAMINA DURAPLAY BLANCO FROST", "color": "Duraplay Blanco Frost", "grosor": null}, {"sku": "10601116", "nombre": "MELAMINA GRIS CLARO 28 MM", "color": "Gris Claro", "grosor": "28MM"}, {"sku": "10601117", "nombre": "MELAMINA NEGRA DE 12 MM", "color": "Negra De", "grosor": "12MM"}, {"sku": "10601120", "nombre": "MELAMINA IMPORTACION CENIZO", "color": "Importacion Cenizo", "grosor": null}, {"sku": "10601121", "nombre": "MELAMINA NEGRA 28 MM", "color": "Negra", "grosor": "28MM"}, {"sku": "10601122", "nombre": "MELAMINA IMPORTACION CAOBA", "color": "Importacion Caoba", "grosor": null}, {"sku": "10601123", "nombre": "MELAMINA OXFORD 19MM", "color": "Oxford", "grosor": "19MM"}, {"sku": "10601124", "nombre": "MELAMINA ZAFIRO 19MM", "color": "Zafiro", "grosor": "19MM"}, {"sku": "10601125", "nombre": "MELAMINA OXFORD 28MM", "color": "Oxford", "grosor": "28MM"}, {"sku": "10601126", "nombre": "MELAMINA ZAFIRO 28MM", "color": "Zafiro", "grosor": "28MM"}, {"sku": "10601127", "nombre": "MELAMINA OXFORD 12MM", "color": "Oxford", "grosor": "12MM"}, {"sku": "10601128", "nombre": "MELAMINA ZAFIRO 12MM", "color": "Zafiro", "grosor": "12MM"}, {"sku": "10601129", "nombre": "MELAMINA ROBLE MERIDA 19 MM", "color": "Roble Merida", "grosor": "19MM"}, {"sku": "10601130", "nombre": "MELAMINA ROBLE MERIDA 16 MM", "color": "Roble Merida", "grosor": null}, {"sku": "10601131", "nombre": "MELAMINA ROBLE ETERNITY 28MM", "color": "Roble Eternity", "grosor": "28MM"}, {"sku": "10601132", "nombre": "MELAMINA ROBLE ETERNITY 19MM", "color": "Roble Eternity", "grosor": "19MM"}, {"sku": "10601133", "nombre": "MELAMINA ROBLE TRIGO 28MM", "color": "Roble Trigo", "grosor": "28MM"}, {"sku": "10601134", "nombre": "MELAMINA ROBLE TRIGO 19MM", "color": "Roble Trigo", "grosor": "19MM"}, {"sku": "10601135", "nombre": "MELAMINA ROBLE SINATRA 28MM", "color": "Roble Sinatra", "grosor": "28MM"}, {"sku": "10601136", "nombre": "MELAMINA ROBLE SINATRA 19MM", "color": "Roble Sinatra", "grosor": "19MM"}, {"sku": "10601137", "nombre": "MELAMINA ROBLE SANTANA 28MM", "color": "Roble Santana", "grosor": "28MM"}, {"sku": "10601138", "nombre": "MELAMINA ROBLE SANTANA 19MM", "color": "Roble Santana", "grosor": "19MM"}, {"sku": "10601139", "nombre": "MELAMINA TEKA ARTICO 24MM", "color": "Teka Artico", "grosor": null}, {"sku": "10601140", "nombre": "MELAMINA NOGAL BRITANICO 28 MM", "color": "Nogal Britanico", "grosor": "28MM"}, {"sku": "10601141", "nombre": "MELAMINA NOGAL BRITANICO 19MM", "color": "Nogal Britanico", "grosor": "19MM"}, {"sku": "10601142", "nombre": "MELAMINA FRESNO BRUMA 19MM", "color": "Fresno Bruma", "grosor": "19MM"}, {"sku": "10601143", "nombre": "MELAMINA NOGAL TERRACOTA 30MM", "color": "Nogal Terracota", "grosor": null}, {"sku": "10601145", "nombre": "MELAMINA CENIZO TEXTURIZADA 19 MM", "color": "Cenizo Texturizada", "grosor": "19MM"}, {"sku": "10601146", "nombre": "MELAMINA NOGAL TEXTURIZADA 19 MM", "color": "Nogal Texturizada", "grosor": "19MM"}, {"sku": "10601147", "nombre": "MELAMINA NOGAL TEXTURIZADA 28 MM", "color": "Nogal Texturizada", "grosor": "28MM"}, {"sku": "10601148", "nombre": "MELAMINA ROMERO 19 MM", "color": "Romero", "grosor": "19MM"}, {"sku": "10601149", "nombre": "MELAMINA ROMERO 28 MM", "color": "Romero", "grosor": "28MM"}, {"sku": "10601150", "nombre": "MELAMINA TERRA 19 MM", "color": "Terra", "grosor": "19MM"}, {"sku": "10601151", "nombre": "MELAMINA TERRA 28 MM", "color": "Terra", "grosor": "28MM"}, {"sku": "10601152", "nombre": "MELAMINA ROBLE MERIDA 28 MM", "color": "Roble Merida", "grosor": "28MM"}, {"sku": "10601154", "nombre": "MELAMINA ROMERO 12MM", "color": "Romero", "grosor": "12MM"}, {"sku": "10601155", "nombre": "MELAMINA TERRA 12MM", "color": "Terra", "grosor": "12MM"}, {"sku": "10601156", "nombre": "MELAMINA ZAFIRO 16 MM", "color": "Zafiro", "grosor": null}, {"sku": "10601157", "nombre": "MELAMINA NEGRA 16 MM", "color": "Negra", "grosor": null}, {"sku": "10601158", "nombre": "MELAMINA VISION 19 MM", "color": "Vision", "grosor": "19MM"}, {"sku": "10601159", "nombre": "MELAMINA OLMO FORESTA 19 MM", "color": "Olmo Foresta", "grosor": "19MM"}, {"sku": "10601160", "nombre": "MELAMINA OLMO FORESTA 28 MM", "color": "Olmo Foresta", "grosor": "28MM"}, {"sku": "10601161", "nombre": "MELAMINA BRAZZAVILLE WENGUE 19 MM", "color": "Brazzaville Wengue", "grosor": "19MM"}, {"sku": "10601162", "nombre": "MELAMINA BRAZZAVILLE WENGUE 28 MM", "color": "Brazzaville Wengue", "grosor": "28MM"}, {"sku": "10601163", "nombre": "MELAMINA ENCINO CALIZA 19 MM", "color": "Encino Caliza", "grosor": "19MM"}, {"sku": "10601164", "nombre": "MELAMINA ENCINO CALIZA 28 MM", "color": "Encino Caliza", "grosor": "28MM"}, {"sku": "10601165", "nombre": "MELAMINA LATTE 19 MM", "color": "Latte", "grosor": "19MM"}, {"sku": "10601166", "nombre": "MELAMINA LATTE 28 MM", "color": "Latte", "grosor": "28MM"}, {"sku": "10602003", "nombre": "MDF 5.5 MM MELAMINA ARCE MAPLE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602004", "nombre": "MDF 5.5 MM MELAMINA GRAFITO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602006", "nombre": "MDF 5.5 MM MELAMINA GRIS", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602007", "nombre": "MDF 5.5 MM MELAMINA CEREZO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602008", "nombre": "MDF 5.5 MM MELAMINA NOGAL NEO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602009", "nombre": "MDF 28 MM MELAMINA BLANCA MATE", "color": "Mdf", "grosor": "28MM"}, {"sku": "10602010", "nombre": "MDF 5.5 MM MELAMINA MONARCA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602011", "nombre": "MDF 5.5 MM MELAMINA BLANCO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602012", "nombre": "MDF 5.5 MM MELAMINA OYAMEL", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602013", "nombre": "MDF 5.5 MM MELAMINA ROBLE TABA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602017", "nombre": "MDF 5.5 MM MELAMINA WENGUE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602018", "nombre": "MDF 5.5 MM MELAMINA PRECOMPUES", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602023", "nombre": "MDF 5.5 MM MELAMINA ANAHUAC", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602038", "nombre": "MDF 5.5 MM MELAMINA ENCINO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602039", "nombre": "MDF 5.5 MM MELAMINA CARRARA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602050", "nombre": "MDF 5.5 MM MELAMINA ROBLE ETERNITY", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602051", "nombre": "MDF 5.5 MM MELAMINA ROBLE TRIGO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602052", "nombre": "MDF 5.5 MM MELAMINA ROBLE SINATRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602053", "nombre": "MDF 5.5 MM MELAMINA NEGRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602054", "nombre": "MDF 5.5 MM MELAMINA ZAFIRO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602063", "nombre": "MDF 5.5 MM MELAMINA ROBLE MERIDA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602064", "nombre": "MDF 19 MM MELAMINA PRECOMPUESTO CENIZA", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602065", "nombre": "MDF 19 MM MELAMINA MONARCA", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602066", "nombre": "MDF 19 MM MELAMINA ENCINO POLAR", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602067", "nombre": "MDF 5.5 MM MELAMINA OXFORD", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602068", "nombre": "MDF 5.5 MM MELAMINA ROMERO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602069", "nombre": "MDF 5.5 MM MELAMINA TERRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602071", "nombre": "MDF 5.5 MM MELAMINA OLMO FORESTA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602072", "nombre": "MDF 5.5 MM MELAMINA CONCRETO OBSCURO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602073", "nombre": "MDF 5.5 MM MELAMINA BRAZZAVILLE WENGUE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602090", "nombre": "MDF 5.5 MM MELAMINA ENCINO CALIZA", "color": "Mdf", "grosor": "5.5MM"}];
+
+// Busca en el catálogo por color + grosor (tolerante a variaciones)
+function buscarMelamina(color, grosor){
+  if(!color || !grosor) return null;
+  const c = color.trim().toLowerCase();
+  const g = grosor.trim().toLowerCase().replace(/\s+/g,'');
+  // Búsqueda exacta primero
+  let found = CATALOGO_MELAMINAS.find(m =>
+    m.color.toLowerCase() === c && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
+  );
+  // Si no, búsqueda parcial por color
+  if(!found) found = CATALOGO_MELAMINAS.find(m =>
+    m.color.toLowerCase().includes(c) && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
+  );
+  if(!found) found = CATALOGO_MELAMINAS.find(m =>
+    c.includes(m.color.toLowerCase()) && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
+  );
+  return found || null;
+}
+
+// Obtener colores únicos del catálogo para un grosor dado
+function coloresPorGrosor(grosor){
+  const g = (grosor||'').toLowerCase().replace(/\s+/g,'');
+  return [...new Set(
+    CATALOGO_MELAMINAS
+      .filter(m => m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g)
+      .map(m => m.color)
+  )].sort();
+}
+
+// Grosores únicos disponibles en el catálogo
+const GROSORES_CATALOGO = [...new Set(CATALOGO_MELAMINAS.filter(m=>m.grosor).map(m=>m.grosor))].sort();
 if(!DB.sobrantes) DB.sobrantes = [];
 
 // Colores para swatches visuales
@@ -2058,11 +2209,15 @@ function guardarSobrante(){
   const ubicacion = document.getElementById('sob-ubicacion')?.value.trim() || '';
   if(!alto || !ancho){ alert('Ingresa el alto y ancho aproximado del pedazo'); return; }
 
+  // Auto-identificar material del catálogo
+  const matCatalogo = buscarMelamina(cOP.color, cOP.grosor);
   const sob = {
     id: 'SOB-' + Date.now(),
-    color:    cOP.color,
-    grosor:   cOP.grosor,
-    pct:      cSobrantePct,
+    color:        cOP.color,
+    grosor:       cOP.grosor,
+    skuMaterial:  matCatalogo ? matCatalogo.sku : '—',
+    nombreMat:    matCatalogo ? matCatalogo.nombre : cOP.color + ' ' + cOP.grosor,
+    pct:          cSobrantePct,
     alto,
     ancho,
     ubicacion,
@@ -2116,7 +2271,7 @@ function mostrarAvisoSobrantes(op){
   disp.forEach(s=>{
     h += '<span class="sob-chip" onclick="verSobrante(\''+s.id+'\')" title="'+s.ubicacion+'">';
     h += '<span style="width:8px;height:8px;border-radius:2px;background:'+swatchColor(s.color)+';border:0.5px solid var(--border2);display:inline-block;"></span>';
-    h += s.alto+'×'+s.ancho+' cm · '+s.pct+'%';
+    h += s.alto+'×'+s.ancho+' cm'+(s.pct?' · '+s.pct+'%':'')+(s.skuMaterial&&s.skuMaterial!=='—'?' · '+s.skuMaterial:'');
     h += '</span>';
   });
   h += '</div></div></div>';
@@ -2126,6 +2281,80 @@ function mostrarAvisoSobrantes(op){
 function verSobrante(id){
   const s = DB.sobrantes.find(x=>x.id===id); if(!s) return;
   alert('Pedazo de '+s.color+' '+s.grosor+'\n'+s.alto+' × '+s.ancho+' cm ('+s.pct+'% de hoja)\nGuardado por: '+s.operario+' · '+s.fecha+'\nUbicación: '+(s.ubicacion||'No especificada'));
+}
+
+
+// ── Formulario manual de sobrante (supervisor) ──
+function togFormSobrante(){
+  const f = document.getElementById('form-sob');
+  if(!f) return;
+  const open = f.style.display === 'none' || !f.style.display;
+  f.style.display = open ? 'block' : 'none';
+  if(open) iniciarFormSobrante();
+}
+
+function iniciarFormSobrante(){
+  // Poblar grosores desde catálogo
+  const sg = document.getElementById('fsob-grosor'); if(!sg) return;
+  sg.innerHTML = '<option value="">— selecciona —</option>' +
+    GROSORES_CATALOGO.map(g=>'<option value="'+g+'">'+g+'</option>').join('');
+  document.getElementById('fsob-color').innerHTML = '<option value="">— primero elige grosor —</option>';
+  document.getElementById('fsob-mat-info').style.display = 'none';
+}
+
+function actualizarColoresCatalogo(){
+  const g   = document.getElementById('fsob-grosor')?.value;
+  const sc  = document.getElementById('fsob-color'); if(!sc) return;
+  if(!g){ sc.innerHTML='<option value="">— primero elige grosor —</option>'; return; }
+  const cols = coloresPorGrosor(g);
+  sc.innerHTML = '<option value="">— selecciona color —</option>' +
+    cols.map(col=>'<option value="'+col+'">'+col+'</option>').join('');
+  sc.onchange = () => {
+    const mat = buscarMelamina(sc.value, g);
+    const info = document.getElementById('fsob-mat-info');
+    const det  = document.getElementById('fsob-mat-det');
+    if(mat && info && det){
+      info.style.display = 'block';
+      det.textContent = mat.sku + ' · ' + mat.nombre;
+    } else if(info){
+      info.style.display = 'none';
+    }
+  };
+}
+
+function agregarSobrante(){
+  const grosor = document.getElementById('fsob-grosor')?.value;
+  const color  = document.getElementById('fsob-color')?.value;
+  const alto   = parseFloat(document.getElementById('fsob-alto')?.value) || 0;
+  const ancho  = parseFloat(document.getElementById('fsob-ancho')?.value) || 0;
+  const ubic   = document.getElementById('fsob-ubic')?.value.trim() || '';
+
+  if(!grosor || !color){ alert('Selecciona grosor y color'); return; }
+  if(!alto || !ancho){ alert('Ingresa el alto y ancho'); return; }
+
+  const mat = buscarMelamina(color, grosor);
+  const sob = {
+    id:          'SOB-' + Date.now(),
+    color,
+    grosor,
+    skuMaterial: mat ? mat.sku : '—',
+    nombreMat:   mat ? mat.nombre : color + ' ' + grosor,
+    pct:         null, // ingreso manual, no calculado
+    alto,
+    ancho,
+    ubicacion:   ubic,
+    operario:    'Supervisor',
+    maquina:     '—',
+    fecha:       new Date().toLocaleDateString('es-CL'),
+    op:          '—',
+    area:        supArea ? supArea.id : DB.areas[0]?.id,
+    estado:      'disponible',
+    manual:      true,
+  };
+  DB.sobrantes.push(sob);
+  if(typeof saveSobrante === 'function') saveSobrante(sob).catch(console.error);
+  togFormSobrante();
+  rAlmacen();
 }
 
 // ── Tab Almacén supervisor ──
@@ -2141,7 +2370,7 @@ function rAlmacen(){
   updAlmacenBadge();
 
   if(!lista.length){
-    cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-size:13px;font-family:\'DM Mono\',monospace;"><i class="ti ti-stack-2" style="font-size:32px;display:block;margin-bottom:8px;"></i>'+(est==='disponible'?'No hay sobrantes disponibles actualmente':'Sin registros')+'</div>';
+    cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-size:13px;font-family:monospace;"><i class="ti ti-stack-2" style="font-size:32px;display:block;margin-bottom:8px;"></i>'+(est==='disponible'?'No hay sobrantes disponibles actualmente':'Sin registros')+'</div>';
     return;
   }
 
@@ -2164,7 +2393,7 @@ function rAlmacen(){
       '<div style="width:14px;height:14px;border-radius:3px;background:'+swatchColor(g.color)+';border:0.5px solid var(--border2);flex-shrink:0;"></div>'+
       '<span style="font-size:14px;font-weight:600;">'+g.color+'</span>'+
       '<span class="badge b-maq">'+g.grosor+'</span>'+
-      '<span style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+g.items.length+' pedazo'+(g.items.length!==1?'s':'')+'</span>';
+      '<span style="font-size:12px;color:var(--text2);font-family:monospace;">'+g.items.length+' pedazo'+(g.items.length!==1?'s':'')+'</span>';
     sec.appendChild(hdr);
 
     // Tarjetas de cada pedazo
@@ -2176,12 +2405,13 @@ function rAlmacen(){
           '<div class="sob-swatch" style="background:'+swatchColor(s.color)+';"></div>'+
           '<div>'+
             '<div style="font-size:15px;font-weight:600;">'+s.alto+' × '+s.ancho+' cm <span style="font-size:12px;font-weight:400;color:var(--text2);">(~'+s.pct+'% de hoja)</span></div>'+
-            '<div style="font-size:11px;color:var(--text2);font-family:\'DM Mono\',monospace;margin-top:2px;">'+
+            '<div style="font-size:11px;color:var(--amber-t);font-family:monospace;margin-bottom:2px;">'+(s.skuMaterial&&s.skuMaterial!=='—'?s.skuMaterial+' · ':'')+s.nombreMat+'</div>'+
+            '<div style="font-size:11px;color:var(--text2);font-family:monospace;margin-top:2px;">'+
               s.operario+' · '+s.maquina+' · '+s.fecha+
               (s.op?' · <span style="color:var(--amber-t);">'+s.op+'</span>':'')+
               (s.ubicacion?' · 📍 '+s.ubicacion:'')+
             '</div>'+
-            (s.estado==='usado'?'<div style="font-size:11px;color:var(--green-t);margin-top:2px;font-family:\'DM Mono\',monospace;">✓ Usado el '+s.usadoEn+' por '+s.usadoPor+'</div>':'')+
+            (s.estado==='usado'?'<div style="font-size:11px;color:var(--green-t);margin-top:2px;font-family:monospace;">✓ Usado el '+s.usadoEn+' por '+s.usadoPor+'</div>':'')+
           '</div>'+
         '</div>'+
         '<div style="display:flex;gap:6px;flex-shrink:0;">'+
@@ -2226,9 +2456,203 @@ function eliminarSobrante(id){
   rAlmacen();
 }
 
+
+// ═══════════════════════════════════════════════════════
+//  EXPORTAR EXCEL
+// ═══════════════════════════════════════════════════════
+function initExportar(){
+  const allOps = supArea ? DB.ops.filter(o=>o.area===supArea.id) : DB.ops;
+  const fechas = [...new Set(allOps.map(o=>o.fecha).filter(Boolean))].sort();
+  const sd = document.getElementById('exp-desde');
+  const sh = document.getElementById('exp-hasta');
+  if(!sd||!sh) return;
+  const prevD = sd.value, prevH = sh.value;
+  sd.innerHTML = fechas.map(f=>'<option value="'+f+'"'+(f===prevD?' selected':'')+'>'+f+'</option>').join('');
+  sh.innerHTML = fechas.map(f=>'<option value="'+f+'"'+(f===prevH?' selected':'')+'>'+f+'</option>').join('');
+  if(!prevD && fechas.length){ sd.value=fechas[0]; sh.value=fechas[fechas.length-1]; }
+  actualizarPreviewExp();
+  sd.onchange = actualizarPreviewExp;
+  sh.onchange = actualizarPreviewExp;
+}
+
+function actualizarPreviewExp(){
+  const desde = document.getElementById('exp-desde')?.value;
+  const hasta  = document.getElementById('exp-hasta')?.value;
+  const info   = document.getElementById('exp-preview-info');
+  if(!desde||!hasta||!info){ if(info) info.style.display='none'; return; }
+  const rows = getExportRows(desde, hasta);
+  info.style.display = 'block';
+  if(!rows.length){
+    info.innerHTML = '<i class="ti ti-inbox" style="vertical-align:-2px;margin-right:6px;"></i>Sin datos en ese período';
+    return;
+  }
+  const ops = new Set(rows.map(r=>r[1])).size; // col OP
+  info.innerHTML =
+    '<i class="ti ti-circle-check" style="color:var(--green-t);vertical-align:-2px;margin-right:6px;"></i>' +
+    '<strong>'+rows.length+'</strong> filas · <strong>'+ops+'</strong> OPs · período: <strong>'+desde+'</strong> → <strong>'+hasta+'</strong>';
+}
+
+function getExportRows(desde, hasta){
+  const allOps  = (supArea ? DB.ops.filter(o=>o.area===supArea.id) : DB.ops)
+    .filter(o => o.fecha && o.fecha >= desde && o.fecha <= hasta);
+  const allRegs = supArea ? DB.registros.filter(r=>r.area===supArea.id) : DB.registros;
+  const opsIds  = new Set(allOps.map(o=>o.op));
+  const regs    = allRegs.filter(r=>opsIds.has(r.op));
+
+  const rows = [];
+
+  allOps.forEach(op => {
+    op.materiales.forEach(mat => {
+      // Sumar real desde registros
+      const regsOp = regs.filter(r=>r.op===op.op);
+      const regMat = regsOp.flatMap(r=>r.materiales.filter(m=>m.skuMat===mat.skuMat));
+      const real    = regMat.reduce((s,m)=>s+(m.hojas||0), 0);
+      const reut    = regMat.reduce((s,m)=>s+(m.reutilizado||0), 0);
+      const sob     = regMat.reduce((s,m)=>s+(m.sobrante||0), 0);
+      const plan    = mat.planificado || 0;
+      const difHjs  = real > 0 ? parseFloat((real - plan).toFixed(3)) : '';
+      const difPct  = real > 0 && plan > 0 ? parseFloat(((real-plan)/plan*100).toFixed(1)) : '';
+      const estado  = real === 0 ? 'Pendiente' :
+                      plan > 0 && Math.abs((real-plan)/plan*100) <= 10 ? 'En rango' :
+                      real > plan ? 'Exceso' : 'Déficit';
+
+      rows.push([
+        op.fecha,           // Fecha
+        op.op,              // OP
+        op.sku,             // SKU OP
+        op.modelo,          // Modelo
+        op.color,           // Color
+        op.grosor,          // Grosor
+        mat.nombre,         // Material
+        mat.skuMat,         // SKU Material
+        plan,               // Planificado
+        real > 0 ? parseFloat(real.toFixed(3)) : '',   // Real
+        reut > 0 ? parseFloat(reut.toFixed(3)) : '',   // Reutilizado
+        sob  > 0 ? parseFloat(sob.toFixed(3))  : '',   // Sobrante
+        difHjs,             // Diferencia hjs
+        difPct,             // Diferencia %
+        estado,             // Estado
+      ]);
+    });
+  });
+
+  return rows;
+}
+
+function exportarExcel(){
+  const desde = document.getElementById('exp-desde')?.value;
+  const hasta  = document.getElementById('exp-hasta')?.value;
+  if(!desde||!hasta){ alert('Selecciona el período'); return; }
+
+  const rows = getExportRows(desde, hasta);
+  if(!rows.length){ alert('No hay datos para ese período'); return; }
+
+  const btn = document.getElementById('btn-exportar');
+  if(btn){ btn.innerHTML='<i class="ti ti-loader" style="animation:spin 1s linear infinite;"></i> Generando...'; btn.disabled=true; }
+
+  // Encabezados
+  const headers = [
+    'Fecha','OP','SKU OP','Modelo','Color','Grosor',
+    'Material','SKU Material',
+    'Planificado (hjs)','Real (hjs)','Reutilizado','Sobrante',
+    'Diferencia (hjs)','Diferencia (%)','Estado'
+  ];
+
+  // Construir hoja con XLSX
+  const wsData = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Anchos de columna
+  ws['!cols'] = [
+    {wch:12},{wch:14},{wch:12},{wch:10},{wch:18},{wch:8},
+    {wch:28},{wch:14},
+    {wch:16},{wch:12},{wch:12},{wch:10},
+    {wch:16},{wch:14},{wch:12}
+  ];
+
+  // Estilo encabezado (solo disponible en XLSX pro, pero dejamos el rango)
+  ws['!autofilter'] = { ref: 'A1:O1' };
+
+  const wb = XLSX.utils.book_new();
+  const areaNom = supArea ? supArea.nombre.replace(/\s+/g,'_') : 'Todas';
+  XLSX.utils.book_append_sheet(wb, ws, 'Consumos');
+
+  // Segunda hoja: resumen por color+grosor
+  const resumen = generarResumenExcel(rows);
+  const wsRes = XLSX.utils.aoa_to_sheet(resumen);
+  wsRes['!cols'] = [{wch:20},{wch:10},{wch:16},{wch:14},{wch:16},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsRes, 'Resumen por material');
+
+  const filename = 'Consumos_'+areaNom+'_'+desde+'_'+hasta+'.xlsx';
+  XLSX.writeFile(wb, filename);
+
+  setTimeout(()=>{
+    if(btn){ btn.innerHTML='<i class="ti ti-file-type-xls"></i> Descargar Excel'; btn.disabled=false; }
+  }, 1000);
+}
+
+function generarResumenExcel(rows){
+  // Agrupar por color+grosor
+  const grupos = {};
+  rows.forEach(r=>{
+    const key = r[4]+'|'+r[5]; // color|grosor
+    if(!grupos[key]) grupos[key]={color:r[4],grosor:r[5],plan:0,real:0,reut:0,sob:0,ops:new Set()};
+    grupos[key].plan += r[8]||0;
+    grupos[key].real += r[9]||0;
+    grupos[key].reut += r[10]||0;
+    grupos[key].sob  += r[11]||0;
+    grupos[key].ops.add(r[1]);
+  });
+
+  const headers = ['Color','Grosor','OPs','Planificado (hjs)','Real (hjs)','Diferencia (%)'];
+  const dataRows = Object.values(grupos)
+    .sort((a,b)=>a.color.localeCompare(b.color))
+    .map(g=>{
+      const dif = g.plan>0 ? parseFloat(((g.real-g.plan)/g.plan*100).toFixed(1)) : '';
+      return [g.color, g.grosor, g.ops.size,
+              parseFloat(g.plan.toFixed(3)), parseFloat(g.real.toFixed(3)), dif];
+    });
+  return [headers, ...dataRows];
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
-  if(!DB.sobrantes) DB.sobrantes = [];
+  
+// ═══════════ CATÁLOGO DE MELAMINAS ═══════════
+const CATALOGO_MELAMINAS = [{"sku": "10601001", "nombre": "MELAMINA ARCE MAPLE 19 MM", "color": "Arce Maple", "grosor": "19MM"}, {"sku": "10601002", "nombre": "MELAMINA MAPLE ARCE 12 MM", "color": "Maple Arce", "grosor": "12MM"}, {"sku": "10601003", "nombre": "MELAMINA GRAFITO 12 MM", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601004", "nombre": "MELAMINA GRAFITO 19 MM", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601005", "nombre": "MELAMINA GRAFITO 28 MM", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601006", "nombre": "MELAMINA GRIS 12 MM", "color": "Gris", "grosor": "12MM"}, {"sku": "10601007", "nombre": "MELAMINA GRIS 28 MM", "color": "Gris", "grosor": "28MM"}, {"sku": "10601008", "nombre": "MELAMINA GRIS 19 MM", "color": "Gris", "grosor": "19MM"}, {"sku": "10601009", "nombre": "MELAMINA ARCE MAPLE 16 MM", "color": "Arce Maple", "grosor": null}, {"sku": "10601010", "nombre": "MELAMINA CEREZO 16 MM", "color": "Cerezo", "grosor": null}, {"sku": "10601011", "nombre": "MELAMINA NOGAL NEO 16 MM", "color": "Nogal Neo", "grosor": null}, {"sku": "10601012", "nombre": "MELAMINA ARCE MAPLE 28 MM", "color": "Arce Maple", "grosor": "28MM"}, {"sku": "10601013", "nombre": "MELAMINA CEREZO 12 MM", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601014", "nombre": "MELAMINA CEREZO 19 MM", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601015", "nombre": "MELAMINA CEREZO 28 MM", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601016", "nombre": "MELAMINA LUXOR 19 MM", "color": "Luxor", "grosor": "19MM"}, {"sku": "10601017", "nombre": "MELAMINA ROBLE PLATA 28 MM", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601018", "nombre": "MELAMINA ROBLE PLATA 19 MM", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601019", "nombre": "MELAMINA ROBLE PLATA 12 MM", "color": "Roble Plata", "grosor": "12MM"}, {"sku": "10601020", "nombre": "MELAMINA BLANCO FROSTY 16 MM", "color": "Blanco Frosty", "grosor": null}, {"sku": "10601021", "nombre": "MELAMINA WENGUE 16 MM", "color": "Wengue", "grosor": null}, {"sku": "10601022", "nombre": "MELAMINA OYAMEL 16 MM", "color": "Oyamel", "grosor": null}, {"sku": "10601023", "nombre": "MELAMINA ROBLE TABACO 16 MM", "color": "Roble Tabaco", "grosor": null}, {"sku": "10601026", "nombre": "MELAMINA ANAHUAC 12MM ÉBANO", "color": "Anahuac", "grosor": "12MM"}, {"sku": "10601027", "nombre": "MELAMINA MONARCA 12MM EUCALIPT", "color": "Monarca", "grosor": "12MM"}, {"sku": "10601028", "nombre": "MELAMINA ENCINO POLAR 12 MM", "color": "Encino Polar", "grosor": "12MM"}, {"sku": "10601029", "nombre": "MELAMINA ANAHUAC 16MM", "color": "Anahuac", "grosor": null}, {"sku": "10601031", "nombre": "MELAMINA MONARCA 16MM EUCALIPT", "color": "Monarca", "grosor": null}, {"sku": "10601033", "nombre": "MELAMINA BLANCO FROSTY 12 MM", "color": "Blanco Frosty", "grosor": "12MM"}, {"sku": "10601034", "nombre": "MELAMINA BLANCO FROSTY 19 MM", "color": "Blanco Frosty", "grosor": "19MM"}, {"sku": "10601035", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601036", "nombre": "MELAMINA OYAMEL 19 MM", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601037", "nombre": "MELAMINA ENCINO POLAR 16 MM", "color": "Encino Polar", "grosor": null}, {"sku": "10601038", "nombre": "MELAMINA OYAMEL 12 MM", "color": "Oyamel", "grosor": "12MM"}, {"sku": "10601039", "nombre": "MELAMINA  ARCE 12 MM CARB II", "color": "Arce", "grosor": "12MM"}, {"sku": "10601040", "nombre": "MELAMINA ARCE 19 MM CARB II", "color": "Arce", "grosor": "19MM"}, {"sku": "10601041", "nombre": "MELAMINA ROBLE PLATA 19MM CARB", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601042", "nombre": "MELAMINA OYAMEL 19 MM CARB II", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601045", "nombre": "MELAMINA MONARCA 28MM EUCALIPTO", "color": "Monarca", "grosor": "28MM"}, {"sku": "10601046", "nombre": "MELAMINA WENGUE 214 19 MM 2 CA", "color": "Wengue 214", "grosor": "19MM"}, {"sku": "10601047", "nombre": "MELAMINA WENGUE 214 28 MM 2 CA", "color": "Wengue 214", "grosor": "28MM"}, {"sku": "10601048", "nombre": "MELAMINA OYAMEL DE 28 MM", "color": "Oyamel De", "grosor": "28MM"}, {"sku": "10601049", "nombre": "MELAMINA ANAHUAC 28MM", "color": "Anahuac", "grosor": "28MM"}, {"sku": "10601050", "nombre": "MELAMINA NOGAL NEO 12 MM", "color": "Nogal Neo", "grosor": "12MM"}, {"sku": "10601051", "nombre": "MELAMINA NOGAL NEO 19 MM", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601052", "nombre": "MELAMINA NOGAL NEO 28 MM", "color": "Nogal Neo", "grosor": "28MM"}, {"sku": "10601053", "nombre": "MELAMINA ROBLE TABACO 19 MM", "color": "Roble Tabaco", "grosor": "19MM"}, {"sku": "10601054", "nombre": "MELAMINA ROBLE TABACO 28 MM", "color": "Roble Tabaco", "grosor": "28MM"}, {"sku": "10601055", "nombre": "MELAMINA ROBLE TABACO 12 MM", "color": "Roble Tabaco", "grosor": "12MM"}, {"sku": "10601056", "nombre": "MELAMINA ARCE MASISA 19 MM", "color": "Arce Masisa", "grosor": "19MM"}, {"sku": "10601057", "nombre": "MELAMINA GRAFITO 12 MM CARB II", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601058", "nombre": "MELAMINA GRAFITO 19 MM CARB II", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601059", "nombre": "MELAMINA GRAFITO 28 MM CARB II", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601060", "nombre": "MELAMINA ARCE 28 MM CARB II", "color": "Arce", "grosor": "28MM"}, {"sku": "10601062", "nombre": "MELAMINA ROBLE PLATA 28MM CARB", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601063", "nombre": "MELAMINA CEREZO 12 MM CARB II", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601064", "nombre": "MELAMINA CEREZO 19 MM CARB II", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601065", "nombre": "MELAMINA CEREZO 28 MM CARB II", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601067", "nombre": "MELAMINA GRIS 19 MM CARB II", "color": "Gris", "grosor": "19MM"}, {"sku": "10601069", "nombre": "MELAMINA WENGUE 19 MM", "color": "Wengue", "grosor": "19MM"}, {"sku": "10601070", "nombre": "MELAMINA SOLAR OAK G25 4 X9 FT", "color": "Solar Oak G25 4 X9 Ft", "grosor": null}, {"sku": "10601071", "nombre": "MELAMINA BILTMORE CHERRY 4 X 9", "color": "Biltmore Cherry 4 X 9", "grosor": null}, {"sku": "10601072", "nombre": "MELAMINA AMBER CHERRY 4 x 9 ft", "color": "Amber Cherry 4 X 9 Ft", "grosor": null}, {"sku": "10601073", "nombre": "MELAMINA KENSINGTON MAPLE 4X9", "color": "Kensington Maple 4X9", "grosor": null}, {"sku": "10601074", "nombre": "MELAMINA CAFELLE 4 X 9 FT", "color": "Cafelle 4 X 9 Ft", "grosor": null}, {"sku": "10601075", "nombre": "MELAMINA WILLIAMSBURG CHERRY", "color": "Williamsburg Cherry", "grosor": null}, {"sku": "10601076", "nombre": "MELAMINA TUSCAN WALNUT 4 X 9", "color": "Tuscan Walnut 4 X 9", "grosor": null}, {"sku": "10601077", "nombre": "MELAMINA TABACO 12 MM CARB II", "color": "Tabaco", "grosor": "12MM"}, {"sku": "10601078", "nombre": "MELAMINA TABACO 19 MM CARB II", "color": "Tabaco", "grosor": "19MM"}, {"sku": "10601079", "nombre": "MELAMINA TABACO 28 MM CARB II", "color": "Tabaco", "grosor": "28MM"}, {"sku": "10601081", "nombre": "MELAMINA AFRICAN WALNUT 4 X 9", "color": "African Walnut 4 X 9", "grosor": null}, {"sku": "10601082", "nombre": "MELAMINA BLANCO 19 MM CARB II", "color": "Blanco", "grosor": "19MM"}, {"sku": "10601089", "nombre": "MELAMINA P. CENIZA 19 MM", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601090", "nombre": "MELAMINA P. CENIZA 28 MM", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601091", "nombre": "MELAMINA WENGUE 28 MM", "color": "Wengue", "grosor": "28MM"}, {"sku": "10601092", "nombre": "MELAMINA P. CENIZA 12MM", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601093", "nombre": "MELAMINA WENGUE 12 MM", "color": "Wengue", "grosor": "12MM"}, {"sku": "10601095", "nombre": "MELAMINA P. CENIZA 12MM CARBII", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601096", "nombre": "MELAMINA P. CENIZA 19MM CARBII", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601097", "nombre": "MELAMINA P. CENIZA 28MM CARBII", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601098", "nombre": "MELAMINA NOGAL NEO19 MM CARBII", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601099", "nombre": "MELAMINA P. CENIZA 16 MM", "color": "P. Ceniza", "grosor": null}, {"sku": "10601100", "nombre": "MELAMINA NUUK SENSE 16 MM", "color": "Nuuk Sense", "grosor": null}, {"sku": "10601101", "nombre": "MELAMINA GRIS CLARO 19 MM", "color": "Gris Claro", "grosor": "19MM"}, {"sku": "10601102", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601104", "nombre": "MELAMINA ANAHUAC 19MM ÉBANO", "color": "Anahuac", "grosor": "19MM"}, {"sku": "10601105", "nombre": "MELAMINA MONARCA 19MM EUCALIPTO", "color": "Monarca", "grosor": "19MM"}, {"sku": "10601106", "nombre": "MELAMINA ENCINO POLAR 19 MM", "color": "Encino Polar", "grosor": "19MM"}, {"sku": "10601107", "nombre": "MELAMINA ENCINO POLAR 28 MM", "color": "Encino Polar", "grosor": "28MM"}, {"sku": "10601108", "nombre": "MELAMINA NEGRA 19MM", "color": "Negra", "grosor": "19MM"}, {"sku": "10601110", "nombre": "MELAMINA SUPERPAN 91B ROBLE RE", "color": "Superpan 91B Roble Re", "grosor": null}, {"sku": "10601111", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601112", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601113", "nombre": "MELAMINA DURAPLAY BLANCO FROST", "color": "Duraplay Blanco Frost", "grosor": null}, {"sku": "10601116", "nombre": "MELAMINA GRIS CLARO 28 MM", "color": "Gris Claro", "grosor": "28MM"}, {"sku": "10601117", "nombre": "MELAMINA NEGRA DE 12 MM", "color": "Negra De", "grosor": "12MM"}, {"sku": "10601120", "nombre": "MELAMINA IMPORTACION CENIZO", "color": "Importacion Cenizo", "grosor": null}, {"sku": "10601121", "nombre": "MELAMINA NEGRA 28 MM", "color": "Negra", "grosor": "28MM"}, {"sku": "10601122", "nombre": "MELAMINA IMPORTACION CAOBA", "color": "Importacion Caoba", "grosor": null}, {"sku": "10601123", "nombre": "MELAMINA OXFORD 19MM", "color": "Oxford", "grosor": "19MM"}, {"sku": "10601124", "nombre": "MELAMINA ZAFIRO 19MM", "color": "Zafiro", "grosor": "19MM"}, {"sku": "10601125", "nombre": "MELAMINA OXFORD 28MM", "color": "Oxford", "grosor": "28MM"}, {"sku": "10601126", "nombre": "MELAMINA ZAFIRO 28MM", "color": "Zafiro", "grosor": "28MM"}, {"sku": "10601127", "nombre": "MELAMINA OXFORD 12MM", "color": "Oxford", "grosor": "12MM"}, {"sku": "10601128", "nombre": "MELAMINA ZAFIRO 12MM", "color": "Zafiro", "grosor": "12MM"}, {"sku": "10601129", "nombre": "MELAMINA ROBLE MERIDA 19 MM", "color": "Roble Merida", "grosor": "19MM"}, {"sku": "10601130", "nombre": "MELAMINA ROBLE MERIDA 16 MM", "color": "Roble Merida", "grosor": null}, {"sku": "10601131", "nombre": "MELAMINA ROBLE ETERNITY 28MM", "color": "Roble Eternity", "grosor": "28MM"}, {"sku": "10601132", "nombre": "MELAMINA ROBLE ETERNITY 19MM", "color": "Roble Eternity", "grosor": "19MM"}, {"sku": "10601133", "nombre": "MELAMINA ROBLE TRIGO 28MM", "color": "Roble Trigo", "grosor": "28MM"}, {"sku": "10601134", "nombre": "MELAMINA ROBLE TRIGO 19MM", "color": "Roble Trigo", "grosor": "19MM"}, {"sku": "10601135", "nombre": "MELAMINA ROBLE SINATRA 28MM", "color": "Roble Sinatra", "grosor": "28MM"}, {"sku": "10601136", "nombre": "MELAMINA ROBLE SINATRA 19MM", "color": "Roble Sinatra", "grosor": "19MM"}, {"sku": "10601137", "nombre": "MELAMINA ROBLE SANTANA 28MM", "color": "Roble Santana", "grosor": "28MM"}, {"sku": "10601138", "nombre": "MELAMINA ROBLE SANTANA 19MM", "color": "Roble Santana", "grosor": "19MM"}, {"sku": "10601139", "nombre": "MELAMINA TEKA ARTICO 24MM", "color": "Teka Artico", "grosor": null}, {"sku": "10601140", "nombre": "MELAMINA NOGAL BRITANICO 28 MM", "color": "Nogal Britanico", "grosor": "28MM"}, {"sku": "10601141", "nombre": "MELAMINA NOGAL BRITANICO 19MM", "color": "Nogal Britanico", "grosor": "19MM"}, {"sku": "10601142", "nombre": "MELAMINA FRESNO BRUMA 19MM", "color": "Fresno Bruma", "grosor": "19MM"}, {"sku": "10601143", "nombre": "MELAMINA NOGAL TERRACOTA 30MM", "color": "Nogal Terracota", "grosor": null}, {"sku": "10601145", "nombre": "MELAMINA CENIZO TEXTURIZADA 19 MM", "color": "Cenizo Texturizada", "grosor": "19MM"}, {"sku": "10601146", "nombre": "MELAMINA NOGAL TEXTURIZADA 19 MM", "color": "Nogal Texturizada", "grosor": "19MM"}, {"sku": "10601147", "nombre": "MELAMINA NOGAL TEXTURIZADA 28 MM", "color": "Nogal Texturizada", "grosor": "28MM"}, {"sku": "10601148", "nombre": "MELAMINA ROMERO 19 MM", "color": "Romero", "grosor": "19MM"}, {"sku": "10601149", "nombre": "MELAMINA ROMERO 28 MM", "color": "Romero", "grosor": "28MM"}, {"sku": "10601150", "nombre": "MELAMINA TERRA 19 MM", "color": "Terra", "grosor": "19MM"}, {"sku": "10601151", "nombre": "MELAMINA TERRA 28 MM", "color": "Terra", "grosor": "28MM"}, {"sku": "10601152", "nombre": "MELAMINA ROBLE MERIDA 28 MM", "color": "Roble Merida", "grosor": "28MM"}, {"sku": "10601154", "nombre": "MELAMINA ROMERO 12MM", "color": "Romero", "grosor": "12MM"}, {"sku": "10601155", "nombre": "MELAMINA TERRA 12MM", "color": "Terra", "grosor": "12MM"}, {"sku": "10601156", "nombre": "MELAMINA ZAFIRO 16 MM", "color": "Zafiro", "grosor": null}, {"sku": "10601157", "nombre": "MELAMINA NEGRA 16 MM", "color": "Negra", "grosor": null}, {"sku": "10601158", "nombre": "MELAMINA VISION 19 MM", "color": "Vision", "grosor": "19MM"}, {"sku": "10601159", "nombre": "MELAMINA OLMO FORESTA 19 MM", "color": "Olmo Foresta", "grosor": "19MM"}, {"sku": "10601160", "nombre": "MELAMINA OLMO FORESTA 28 MM", "color": "Olmo Foresta", "grosor": "28MM"}, {"sku": "10601161", "nombre": "MELAMINA BRAZZAVILLE WENGUE 19 MM", "color": "Brazzaville Wengue", "grosor": "19MM"}, {"sku": "10601162", "nombre": "MELAMINA BRAZZAVILLE WENGUE 28 MM", "color": "Brazzaville Wengue", "grosor": "28MM"}, {"sku": "10601163", "nombre": "MELAMINA ENCINO CALIZA 19 MM", "color": "Encino Caliza", "grosor": "19MM"}, {"sku": "10601164", "nombre": "MELAMINA ENCINO CALIZA 28 MM", "color": "Encino Caliza", "grosor": "28MM"}, {"sku": "10601165", "nombre": "MELAMINA LATTE 19 MM", "color": "Latte", "grosor": "19MM"}, {"sku": "10601166", "nombre": "MELAMINA LATTE 28 MM", "color": "Latte", "grosor": "28MM"}, {"sku": "10602003", "nombre": "MDF 5.5 MM MELAMINA ARCE MAPLE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602004", "nombre": "MDF 5.5 MM MELAMINA GRAFITO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602006", "nombre": "MDF 5.5 MM MELAMINA GRIS", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602007", "nombre": "MDF 5.5 MM MELAMINA CEREZO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602008", "nombre": "MDF 5.5 MM MELAMINA NOGAL NEO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602009", "nombre": "MDF 28 MM MELAMINA BLANCA MATE", "color": "Mdf", "grosor": "28MM"}, {"sku": "10602010", "nombre": "MDF 5.5 MM MELAMINA MONARCA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602011", "nombre": "MDF 5.5 MM MELAMINA BLANCO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602012", "nombre": "MDF 5.5 MM MELAMINA OYAMEL", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602013", "nombre": "MDF 5.5 MM MELAMINA ROBLE TABA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602017", "nombre": "MDF 5.5 MM MELAMINA WENGUE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602018", "nombre": "MDF 5.5 MM MELAMINA PRECOMPUES", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602023", "nombre": "MDF 5.5 MM MELAMINA ANAHUAC", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602038", "nombre": "MDF 5.5 MM MELAMINA ENCINO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602039", "nombre": "MDF 5.5 MM MELAMINA CARRARA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602050", "nombre": "MDF 5.5 MM MELAMINA ROBLE ETERNITY", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602051", "nombre": "MDF 5.5 MM MELAMINA ROBLE TRIGO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602052", "nombre": "MDF 5.5 MM MELAMINA ROBLE SINATRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602053", "nombre": "MDF 5.5 MM MELAMINA NEGRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602054", "nombre": "MDF 5.5 MM MELAMINA ZAFIRO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602063", "nombre": "MDF 5.5 MM MELAMINA ROBLE MERIDA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602064", "nombre": "MDF 19 MM MELAMINA PRECOMPUESTO CENIZA", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602065", "nombre": "MDF 19 MM MELAMINA MONARCA", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602066", "nombre": "MDF 19 MM MELAMINA ENCINO POLAR", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602067", "nombre": "MDF 5.5 MM MELAMINA OXFORD", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602068", "nombre": "MDF 5.5 MM MELAMINA ROMERO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602069", "nombre": "MDF 5.5 MM MELAMINA TERRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602071", "nombre": "MDF 5.5 MM MELAMINA OLMO FORESTA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602072", "nombre": "MDF 5.5 MM MELAMINA CONCRETO OBSCURO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602073", "nombre": "MDF 5.5 MM MELAMINA BRAZZAVILLE WENGUE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602090", "nombre": "MDF 5.5 MM MELAMINA ENCINO CALIZA", "color": "Mdf", "grosor": "5.5MM"}];
+
+// Busca en el catálogo por color + grosor (tolerante a variaciones)
+function buscarMelamina(color, grosor){
+  if(!color || !grosor) return null;
+  const c = color.trim().toLowerCase();
+  const g = grosor.trim().toLowerCase().replace(/\s+/g,'');
+  // Búsqueda exacta primero
+  let found = CATALOGO_MELAMINAS.find(m =>
+    m.color.toLowerCase() === c && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
+  );
+  // Si no, búsqueda parcial por color
+  if(!found) found = CATALOGO_MELAMINAS.find(m =>
+    m.color.toLowerCase().includes(c) && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
+  );
+  if(!found) found = CATALOGO_MELAMINAS.find(m =>
+    c.includes(m.color.toLowerCase()) && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
+  );
+  return found || null;
+}
+
+// Obtener colores únicos del catálogo para un grosor dado
+function coloresPorGrosor(grosor){
+  const g = (grosor||'').toLowerCase().replace(/\s+/g,'');
+  return [...new Set(
+    CATALOGO_MELAMINAS
+      .filter(m => m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g)
+      .map(m => m.color)
+  )].sort();
+}
+
+// Grosores únicos disponibles en el catálogo
+const GROSORES_CATALOGO = [...new Set(CATALOGO_MELAMINAS.filter(m=>m.grosor).map(m=>m.grosor))].sort();
+if(!DB.sobrantes) DB.sobrantes = [];
   supArea=null;
   rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();
   const sm=document.getElementById('smaqarea'),su=document.getElementById('susrarea');
@@ -2269,6 +2693,7 @@ function showT(id,el){
   if(id==='t-excel')rExBtns();
   if(id==='t-resumen')rResumenDiario();
   if(id==='t-ejecutivo')initEjecutivo();
+  if(id==='t-exportar')initExportar();
 }
 function updMetrics(){
   const regs=supArea?DB.registros.filter(r=>r.area===supArea.id):DB.registros;
@@ -2314,12 +2739,12 @@ function rReg(){
       rows.push('<tr>'+
         '<td><span class="badge b-op">'+r.op+'</span>'+(r.sinAsignar?'<br><span class="badge b-sinop" style="font-size:9px;">sin OP</span>':'')+
         '<br><span style="font-size:11px;color:var(--text2);">'+r.operario+' · '+r.fecha+'</span>'+
-        '<br><span style="font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace;">'+an+'</span></td>'+
-        '<td style="font-family:\'DM Mono\',monospace;font-size:12px;">'+r.modelo+'<br><span style="color:var(--text2);">'+r.color+' · '+r.grosor+'</span></td>'+
-        '<td>'+m.nombre+'<br><span style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
-        '<td style="font-family:\'DM Mono\',monospace;color:var(--amber-t);">'+(m.hojas||0).toFixed(2)+'</td>'+
-        '<td style="font-family:\'DM Mono\',monospace;color:var(--wood-t);">'+(m.reutilizado>0?m.reutilizado.toFixed(2):'—')+'</td>'+
-        '<td style="font-family:\'DM Mono\',monospace;color:var(--text2);">'+(m.sobrante||0).toFixed(2)+'</td>'+
+        '<br><span style="font-size:10px;color:var(--text3);font-family:monospace;">'+an+'</span></td>'+
+        '<td style="font-family:monospace;font-size:12px;">'+r.modelo+'<br><span style="color:var(--text2);">'+r.color+' · '+r.grosor+'</span></td>'+
+        '<td>'+m.nombre+'<br><span style="font-family:monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
+        '<td style="font-family:monospace;color:var(--amber-t);">'+(m.hojas||0).toFixed(2)+'</td>'+
+        '<td style="font-family:monospace;color:var(--wood-t);">'+(m.reutilizado>0?m.reutilizado.toFixed(2):'—')+'</td>'+
+        '<td style="font-family:monospace;color:var(--text2);">'+(m.sobrante||0).toFixed(2)+'</td>'+
         '<td><span class="badge b-maq">'+r.maquina+'</span></td><td>'+tipH+'</td>'+
         '<td><span class="badge b-ok">Registrado</span>'+(r.autoRegistrado?'<br><span class="badge b-pend" style="font-size:9px;">auto</span>':'')+'</td>'+
         '<td>'+(r.justifDif
@@ -2335,9 +2760,9 @@ function rReg(){
       op.materiales.forEach(m=>{
         const has=allR.some(r=>r.op===op.op&&r.materiales.some(rm=>rm.skuMat===m.skuMat));
         if(has)return;
-        rows.push('<tr><td><span class="badge b-op">'+op.op+'</span><br><span style="font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace;">'+an+'</span></td>'+
-          '<td style="font-family:\'DM Mono\',monospace;font-size:12px;">'+op.modelo+'<br><span style="color:var(--text2);">'+op.color+' · '+op.grosor+'</span></td>'+
-          '<td>'+m.nombre+'<br><span style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
+        rows.push('<tr><td><span class="badge b-op">'+op.op+'</span><br><span style="font-size:10px;color:var(--text3);font-family:monospace;">'+an+'</span></td>'+
+          '<td style="font-family:monospace;font-size:12px;">'+op.modelo+'<br><span style="color:var(--text2);">'+op.color+' · '+op.grosor+'</span></td>'+
+          '<td>'+m.nombre+'<br><span style="font-family:monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
           '<td colspan="6" style="color:var(--text3);">—</td>'+
           '<td><span class="badge b-pend">Pendiente</span></td><td></td></tr>');
       });
@@ -2372,7 +2797,7 @@ function rPlanif(){
   document.getElementById('fpp').textContent=ops.filter(op=>getEst(op)==='pendiente').length;
   const cont=document.getElementById('planifcont');if(!cont)return;
   if(!ops.length){
-    cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">'+
+    cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:monospace;font-size:13px;">'+
       '<i class="ti ti-inbox" style="font-size:32px;display:block;margin-bottom:8px;"></i>'+
       'No hay OPs cargadas'+(supArea?' para '+supArea.nombre:'')+
       (allO.length===0?' — Sube un Excel en "Cargar Excel"':'')+
@@ -2389,7 +2814,7 @@ function rPlanif(){
     const an=DB.areas.find(a=>a.id===op.area)?.nombre||op.area||'—';
     const selSt=selMode&&selSet.has(op.op)?'border-color:var(--red);background:var(--red-bg);':'';
     const estB=estado==='completo'?'<span class="badge b-ok">Completo</span>':estado==='parcial'?'<span class="badge b-rec">Parcial</span>':'<span class="badge b-pend">Pendiente</span>';
-    const fechaH=op.fecha?'<span style="font-size:10px;font-family:\'DM Mono\',monospace;color:var(--text3);background:var(--bg);border:0.5px solid var(--border);padding:2px 7px;border-radius:4px;">'+op.fecha+'</span>':'';
+    const fechaH=op.fecha?'<span style="font-size:10px;font-family:monospace;color:var(--text3);background:var(--bg);border:0.5px solid var(--border);padding:2px 7px;border-radius:4px;">'+op.fecha+'</span>':'';
     const card=document.createElement('div');card.className='op-card';card.id='opc'+op.op;card.style.cssText=selSt;
     const hdr=document.createElement('div');hdr.className='op-ch';
     hdr.onclick=()=>selMode?togOpSel(op.op):togOpCard(op.op);
@@ -2398,7 +2823,7 @@ function rPlanif(){
       '<i class="ti ti-chevron-right chev" id="chv'+op.op+'"></i>';
     const delBtn='<button onclick="event.stopPropagation();abOPs([\''+op.op+'\'])" class="btn btn-red btn-sm" style="padding:4px 8px;"><i class="ti ti-trash"></i></button>';
     hdr.innerHTML='<div class="op-cl">'+leftIcon+
-      '<span style="font-family:\'DM Mono\',monospace;font-size:12px;color:var(--amber-t);">'+op.op+'</span>'+
+      '<span style="font-family:monospace;font-size:12px;color:var(--amber-t);">'+op.op+'</span>'+
       '<span style="font-size:13px;font-weight:500;">Mod. '+op.modelo+' · '+op.color+' · '+op.grosor+' · '+op.cantidad+' uds</span>'+
       fechaH+'<span class="badge b-op" style="font-size:10px;">'+an+'</span>'+estB+
       '</div>'+
@@ -2418,13 +2843,13 @@ function rPlanif(){
       const dH=tR?'<span class="'+dCls+'">'+(dif>0?'+':'')+dif.toFixed(2)+'</span>':'<span style="color:var(--text3)">—</span>';
       const stB=!tR?'<span class="badge b-pend" style="margin-left:4px;">Pendiente</span>':dif>0.001?'<span class="badge b-rec" style="margin-left:4px;">Exceso</span>':'<span class="badge b-ok" style="margin-left:4px;">OK</span>';
       return '<div class="omr">'+
-        '<div><div style="font-weight:500;">'+m.nombre+'</div><div style="font-size:11px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+m.skuMat+'</div></div>'+
-        '<div style="font-family:\'DM Mono\',monospace;color:var(--text2);">'+m.planificado+'</div>'+
-        '<div style="font-family:\'DM Mono\',monospace;color:'+(tR?'var(--amber-t)':'var(--text3)')+';">'+(tR?rd.hojas.toFixed(2):'—')+'</div>'+
-        '<div style="font-family:\'DM Mono\',monospace;color:'+(tR?'var(--wood-t)':'var(--text3)')+';">'+(tR?rd.sobrante.toFixed(2):'—')+'</div>'+
+        '<div><div style="font-weight:500;">'+m.nombre+'</div><div style="font-size:11px;color:var(--text2);font-family:monospace;">'+m.skuMat+'</div></div>'+
+        '<div style="font-family:monospace;color:var(--text2);">'+m.planificado+'</div>'+
+        '<div style="font-family:monospace;color:'+(tR?'var(--amber-t)':'var(--text3)')+';">'+(tR?rd.hojas.toFixed(2):'—')+'</div>'+
+        '<div style="font-family:monospace;color:'+(tR?'var(--wood-t)':'var(--text3)')+';">'+(tR?rd.sobrante.toFixed(2):'—')+'</div>'+
         '<div>'+dH+'</div>'+
         '<div><div class="mpb"><div class="mpf" style="width:'+mPct+'%;background:'+bCol+';"></div></div>'+
-        '<div style="font-size:10px;font-family:\'DM Mono\',monospace;color:var(--text2);text-align:right;margin-top:2px;">'+(tR?mPct+'%':'—')+stB+'</div></div>'+
+        '<div style="font-size:10px;font-family:monospace;color:var(--text2);text-align:right;margin-top:2px;">'+(tR?mPct+'%':'—')+stB+'</div></div>'+
         '</div>';
     }).join('');
     body.innerHTML='<div class="omr hdr"><span>Material</span><span>Plan.</span><span>Real</span><span>Sobrante</span><span>Dif.</span><span>Avance</span></div>'+mRows;
@@ -2485,13 +2910,13 @@ function rComp(){
       const dCls=dif>0.001?'dp':dif<-0.001?'dn':'dz';
       rows.push('<tr>'+
         '<td><span class="badge b-op">'+op.op+'</span></td>'+
-        '<td style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);">'+(op.fecha||'—')+'</td>'+
-        '<td style="font-family:\'DM Mono\',monospace;font-size:12px;">'+op.modelo+'<br><span style="color:var(--text2);">'+op.color+' · '+op.grosor+'</span></td>'+
-        '<td>'+m.nombre+'<br><span style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
-        '<td style="font-family:\'DM Mono\',monospace;color:var(--text2);">'+m.planificado+'</td>'+
-        '<td style="font-family:\'DM Mono\',monospace;color:var(--amber-t);">'+(tR?rd.hojas.toFixed(2):'—')+'</td>'+
-        '<td style="font-family:\'DM Mono\',monospace;color:var(--wood-t);">'+(tR&&rd.reutilizado>0?rd.reutilizado.toFixed(2):'—')+'</td>'+
-        '<td style="font-family:\'DM Mono\',monospace;color:var(--text2);">'+(tR?rd.sobrante.toFixed(2):'—')+'</td>'+
+        '<td style="font-family:monospace;font-size:11px;color:var(--text2);">'+(op.fecha||'—')+'</td>'+
+        '<td style="font-family:monospace;font-size:12px;">'+op.modelo+'<br><span style="color:var(--text2);">'+op.color+' · '+op.grosor+'</span></td>'+
+        '<td>'+m.nombre+'<br><span style="font-family:monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
+        '<td style="font-family:monospace;color:var(--text2);">'+m.planificado+'</td>'+
+        '<td style="font-family:monospace;color:var(--amber-t);">'+(tR?rd.hojas.toFixed(2):'—')+'</td>'+
+        '<td style="font-family:monospace;color:var(--wood-t);">'+(tR&&rd.reutilizado>0?rd.reutilizado.toFixed(2):'—')+'</td>'+
+        '<td style="font-family:monospace;color:var(--text2);">'+(tR?rd.sobrante.toFixed(2):'—')+'</td>'+
         '<td>'+(tR?'<span class="'+dCls+'">'+(dif>0?'+':'')+dif.toFixed(2)+' ('+dPct+'%)</span>':'<span style="color:var(--text3)">—</span>')+'</td>'+
         '<td>'+(tR?'<span class="badge b-ok">Registrado</span>':'<span class="badge b-pend">Pendiente</span>')+'</td></tr>');
     });
@@ -2504,7 +2929,7 @@ function rSA(){
   const regs=DB.registros.filter(r=>r.sinAsignar);
   const cont=document.getElementById('sacont');const b=document.getElementById('sabadge');
   if(b){b.style.display=regs.length?'inline':'none';b.textContent=regs.length;}
-  if(!regs.length){cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;"><i class="ti ti-checks" style="font-size:32px;display:block;margin-bottom:8px;"></i>No hay registros pendientes</div>';return;}
+  if(!regs.length){cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:monospace;font-size:13px;"><i class="ti ti-checks" style="font-size:32px;display:block;margin-bottom:8px;"></i>No hay registros pendientes</div>';return;}
   cont.innerHTML='';
   regs.forEach(r=>{
     const ri=DB.registros.indexOf(r);const an=DB.areas.find(a=>a.id===r.area)?.nombre||r.area;
@@ -2512,8 +2937,8 @@ function rSA(){
     card.innerHTML='<div class="fb" style="flex-wrap:wrap;gap:8px;margin-bottom:8px;">'+
       '<div><div class="fc g1" style="margin-bottom:4px;"><span class="badge b-sinop"><i class="ti ti-clock-exclamation" style="font-size:10px;"></i> Sin OP</span><span class="badge b-op">'+an+'</span></div>'+
       '<p style="font-size:15px;font-weight:600;">Mod. '+r.modelo+' · '+r.color+' · '+r.grosor+'</p>'+
-      '<p style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+r.operario+' · '+r.maquina+' · '+r.fecha+(r.obs?' · "'+r.obs+'"':'')+'</p>'+
-      '<p style="font-size:12px;color:var(--text2);margin-top:4px;">'+r.materiales.map(m=>m.nombre+': <strong style="font-family:\'DM Mono\',monospace;color:var(--amber-t);">'+m.hojas.toFixed(3)+' hjs</strong>').join(' · ')+'</p>'+
+      '<p style="font-size:12px;color:var(--text2);font-family:monospace;">'+r.operario+' · '+r.maquina+' · '+r.fecha+(r.obs?' · "'+r.obs+'"':'')+'</p>'+
+      '<p style="font-size:12px;color:var(--text2);margin-top:4px;">'+r.materiales.map(m=>m.nombre+': <strong style="font-family:monospace;color:var(--amber-t);">'+m.hojas.toFixed(3)+' hjs</strong>').join(' · ')+'</p>'+
       '</div><button class="btn btn-amber btn-sm" onclick="togSAP('+ri+')"><i class="ti ti-link"></i> Asignar OP</button></div>'+
       '<div class="saap" id="sap'+ri+'">'+
         '<p style="font-size:12px;font-weight:500;margin-bottom:8px;">Buscar la OP correcta</p>'+
@@ -2537,7 +2962,7 @@ function fSA(ri,color,grosor){
   ops.forEach(op=>{
     const d=document.createElement('div');
     d.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:.5px solid var(--border);cursor:pointer;gap:8px;';
-    d.innerHTML='<div><div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);">'+op.op+'</div>'+
+    d.innerHTML='<div><div style="font-family:monospace;font-size:11px;color:var(--text2);">'+op.op+'</div>'+
       '<div style="font-size:13px;font-weight:500;">Mod. '+op.modelo+' · '+op.color+' · '+op.grosor+'</div></div>'+
       '<span class="badge b-rec">Asignar</span>';
     d.onmouseover=()=>d.style.background='var(--bg3)';d.onmouseout=()=>d.style.background='';
@@ -2571,7 +2996,7 @@ function rMaqTab(){
   const seen=new Set(),rows=[];
   all.forEach(({m,area})=>{if(seen.has(m))return;seen.add(m);
     rows.push('<tr><td style="font-weight:500;">'+m+'</td><td><span class="badge b-op">'+area.nombre+'</span></td>'+
-      '<td style="font-family:\'DM Mono\',monospace;">'+(c[m]||0)+'</td><td><span class="badge b-ok">Activa</span></td>'+
+      '<td style="font-family:monospace;">'+(c[m]||0)+'</td><td><span class="badge b-ok">Activa</span></td>'+
       '<td><button class="btn btn-red btn-sm" onclick="dMaq(\''+m+'\')"><i class="ti ti-trash"></i></button></td></tr>');
   });
   document.getElementById('tmaq').innerHTML=rows.join('');
@@ -2595,7 +3020,7 @@ function rUsrTab(){
     const ini=u.nombre.split(' ').map(x=>x[0]).join('').slice(0,2);
     return '<tr><td><div class="fc g1"><div class="uav" style="width:28px;height:28px;font-size:10px;margin-bottom:0;">'+ini+'</div>'+u.nombre+'</div></td>'+
       '<td><span class="badge b-op">'+(an[u.area]||u.area)+'</span></td>'+
-      '<td style="font-family:\'DM Mono\',monospace;">'+(c[u.nombre]||0)+'</td>'+
+      '<td style="font-family:monospace;">'+(c[u.nombre]||0)+'</td>'+
       '<td><span class="badge b-ok">Activo</span></td></tr>';
   }).join('');
 }
@@ -2614,79 +3039,245 @@ function rExBtns(){
     const btn=document.createElement('button');
     btn.className='btn '+(excelAreaId===a.id?'btn-amber':'btn-ghost');
     btn.innerHTML='<i class="ti '+a.icon+'"></i> '+a.nombre;
-    btn.onclick=()=>{excelAreaId=a.id;rExBtns();};
+    btn.onclick=()=>{
+      excelAreaId=a.id; rExBtns();
+      // Habilitar paso 2
+      const p2=document.getElementById('ex-paso2');
+      if(p2){p2.style.opacity='1';p2.style.pointerEvents='all';}
+    };
     cont.appendChild(btn);
   });
 }
-function hDrop(e){e.preventDefault();const f=e.dataTransfer.files[0];if(f)procArchivo(f);}
-function cExcel(inp){const f=inp.files[0];if(f)procArchivo(f);}
-function procArchivo(file){
+let exPendingFile = null;
+
+function hDrop(e){
+  e.preventDefault();
+  document.querySelector('.uz').style.borderColor='';
+  const f=e.dataTransfer.files[0];
+  if(f) mostrarConfirmacionExcel(f);
+}
+function cExcel(inp){
+  const f=inp.files[0];
+  if(f) mostrarConfirmacionExcel(f);
+}
+function mostrarConfirmacionExcel(file){
+  if(!excelAreaId){alert('Selecciona el área primero');return;}
+  exPendingFile=file;
+  const an=DB.areas.find(a=>a.id===excelAreaId)?.nombre||excelAreaId;
+  const info=document.getElementById('ex-archivo-info');
+  if(info) info.innerHTML=
+    '<div class="fc g1" style="flex-wrap:wrap;gap:12px;">'+
+    '<div><i class="ti ti-file-spreadsheet" style="font-size:24px;color:var(--green-t);"></i></div>'+
+    '<div>'+
+      '<p style="font-size:14px;font-weight:500;">'+file.name+'</p>'+
+      '<p style="font-size:12px;color:var(--text2);font-family:monospace;margin-top:2px;">'+
+        (file.size/1024).toFixed(1)+' KB · Área: <strong style="color:var(--amber-t);">'+an+'</strong>'+
+      '</p>'+
+    '</div></div>';
+  // Fecha por defecto = hoy
+  const today=new Date().toISOString().split('T')[0];
+  const fd=document.getElementById('ex-fecha-prod');
+  if(fd) fd.value=today;
+  // Mostrar paso 3, ocultar zona de upload
+  document.getElementById('ex-paso3').style.display='block';
+  document.getElementById('ex-paso2').style.opacity='.5';
+  document.getElementById('ex-paso2').style.pointerEvents='none';
+  document.getElementById('exst').innerHTML='';
+}
+function cancelarCargaExcel(){
+  exPendingFile=null;
+  document.getElementById('ex-paso3').style.display='none';
+  document.getElementById('ex-paso2').style.opacity='1';
+  document.getElementById('ex-paso2').style.pointerEvents='all';
+  document.getElementById('exinput').value='';
+  document.getElementById('exst').innerHTML='';
+}
+function confirmarCargaExcel(){
+  if(!exPendingFile){alert('No hay archivo seleccionado');return;}
+  const fechaProd=document.getElementById('ex-fecha-prod')?.value;
+  if(!fechaProd){alert('Ingresa la fecha de producción');return;}
+  // Convertir yyyy-mm-dd a dd/mm/yyyy para el sistema
+  const [y,m,d]=fechaProd.split('-');
+  const fechaFmt=d+'/'+m+'/'+y;
+  document.getElementById('ex-paso3').style.display='none';
+  procArchivo(exPendingFile, fechaFmt);
+  exPendingFile=null;
+}
+function procArchivo(file, fechaProd){
   if(!excelAreaId){alert('Selecciona el área antes de cargar');return;}
   const st=document.getElementById('exst');
-  st.innerHTML='<div style="background:var(--bg2);border:.5px solid var(--border);border-radius:var(--r);padding:12px 16px;font-size:13px;color:var(--text2);font-family:\'DM Mono\',monospace;display:flex;align-items:center;gap:8px;"><i class="ti ti-loader" style="animation:spin 1s linear infinite;"></i> Procesando '+file.name+'...</div>';
+  st.innerHTML='<div style="background:var(--bg2);border:.5px solid var(--border);border-radius:var(--r);padding:12px 16px;font-size:13px;color:var(--text2);font-family:monospace;display:flex;align-items:center;gap:8px;"><i class="ti ti-loader" style="animation:spin 1s linear infinite;"></i> Procesando '+file.name+'...</div>';
   const reader=new FileReader();
   reader.onload=function(e){
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-      const data=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-      let ops=0,mats=0,errs=[];const opMap={};
-      data.forEach((row,i)=>{
-        const op=String(row['op']||row['OP']||'').trim();
-        const modelo=String(row['modelo']||'').trim();
-        const color=String(row['color']||'').trim();
-        const grosor=String(row['grosor']||'').trim().toLowerCase().replace(/\s+/g,'');
-        const sku=String(row['sku']||'').trim();
-        const cant=parseFloat(row['cantidad_muebles']||0);
-        // Convertir fecha — puede venir como número serial de Excel (ej: 46161) o string
-        const fechaRaw = row['fecha'];
-        let fecha = '';
-        if(fechaRaw){
-          const n = Number(fechaRaw);
-          if(!isNaN(n) && n > 40000 && n < 60000){
-            // número serial de Excel → fecha real
-            const d = new Date(Math.round((n - 25569) * 86400 * 1000));
-            fecha = d.toLocaleDateString('es-CL');
-          } else {
-            fecha = String(fechaRaw).trim();
-          }
-        }
-        const nomMat=String(row['nombre_material']||'').trim();
-        const skuMat=String(row['sku_material']||'').trim();
-        const planif=parseFloat(row['cantidad_planificada']||0);
-        const areaRow=String(row['area']||'').trim()||excelAreaId;
-        if(!op||!modelo){errs.push('Fila '+(i+2)+': falta op o modelo');return;}
-        if(!opMap[op]){opMap[op]={area:areaRow,op,sku,modelo,color,grosor,cantidad:cant,fecha,materiales:[]};ops++;}
-        if(nomMat){opMap[op].materiales.push({nombre:nomMat,skuMat,planificado:planif});mats++;}
-      });
-      Object.values(opMap).forEach(o=>{const idx=DB.ops.findIndex(x=>x.op===o.op);if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);
-        // Guardar OP en Firebase
-        if(typeof fbGuardarOP === 'function') fbGuardarOP(o);
-      });
-      const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
-      const an=DB.areas.find(a=>a.id===excelAreaId)?.nombre||excelAreaId;
-      historial.unshift({nombre:file.name,area:an,ops,mats,hora});
-      rHist();
-      st.innerHTML='<div style="background:var(--green-bg);border:.5px solid var(--green);border-radius:var(--r);padding:12px 16px;font-size:13px;color:var(--green-t);font-family:\'DM Mono\',monospace;margin-bottom:8px;"><i class="ti ti-check"></i> <strong>'+file.name+'</strong> — '+ops+' OPs · '+mats+' materiales en '+an+'</div>'+
-        (errs.length?'<div style="background:var(--amber-bg);border:.5px solid var(--amber);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--amber-t);font-family:\'DM Mono\',monospace;"><i class="ti ti-alert-triangle"></i> '+errs.length+' advertencias:<br>'+errs.slice(0,5).map(e=>'· '+e).join('<br>')+'</div>':'');
-      document.getElementById('exinput').value='';
-      updMetrics();rReg();rPlanif();rComp();
+      if(esDynamics(wb)) procDynamics(wb,file.name,fechaProd);
+      else                procEstandar(wb,file.name,fechaProd);
     }catch(err){
-      st.innerHTML='<div style="background:var(--red-bg);border:.5px solid var(--red);border-radius:var(--r);padding:12px 16px;font-size:13px;color:var(--red-t);font-family:\'DM Mono\',monospace;"><i class="ti ti-x"></i> Error: '+err.message+'</div>';
+      document.getElementById('exst').innerHTML='<div style="background:var(--red-bg);border:.5px solid var(--red);border-radius:var(--r);padding:12px 16px;font-size:13px;color:var(--red-t);font-family:monospace;"><i class="ti ti-x"></i> Error: '+err.message+'</div>';
     }
   };
   reader.readAsArrayBuffer(file);
 }
+
+function esDynamics(wb){
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,blankrows:true});
+  for(let i=0;i<30;i++){
+    const row=rows[i]||[];
+    for(let j=0;j<row.length;j++){
+      const v=row[j]; if(!v) continue;
+      const s=String(v).trim();
+      if(s==='No OP') return true;
+      if(s.toUpperCase().includes('CONSUMOS EXTRAS')) return true;
+      if(s.includes('Fecha vencimiento')) return true;
+    }
+  }
+  return false;
+}
+
+function procEstandar(wb,fileName,fechaProd){
+  const data=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  let ops=0,mats=0,errs=[];const opMap={};
+  data.forEach((row,i)=>{
+    const op=String(row['op']||row['OP']||'').trim();
+    const modelo=String(row['modelo']||'').trim();
+    const color=String(row['color']||'').trim();
+    const grosor=String(row['grosor']||'').trim().toLowerCase().replace(/\s+/g,'');
+    const sku=String(row['sku']||'').trim();
+    const cant=parseFloat(row['cantidad_muebles']||0);
+    let fecha=fechaProd||'';
+    if(!fechaProd){
+      const fechaRaw=row['fecha'];
+      if(fechaRaw){
+        const n=Number(fechaRaw);
+        fecha=(!isNaN(n)&&n>40000&&n<60000)
+          ?new Date(Math.round((n-25569)*86400*1000)).toLocaleDateString('es-CL')
+          :String(fechaRaw).trim();
+      }
+    }
+    const nomMat=String(row['nombre_material']||'').trim();
+    const skuMat=String(row['sku_material']||'').trim();
+    const planif=parseFloat(row['cantidad_planificada']||0);
+    const areaRow=String(row['area']||'').trim()||excelAreaId;
+    if(!op||!modelo){errs.push('Fila '+(i+2)+': falta op o modelo');return;}
+    if(!opMap[op]){opMap[op]={area:areaRow,op,sku,modelo,color,grosor,cantidad:cant,fecha,materiales:[]};ops++;}
+    if(nomMat){opMap[op].materiales.push({nombre:nomMat,skuMat,planificado:planif});mats++;}
+  });
+  finalizarCarga(opMap,ops,mats,errs,fileName,'estándar');
+}
+
+function procDynamics(wb,fileName,fechaProd){
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const catBySku={};
+  CATALOGO_MELAMINAS.forEach(m=>{catBySku[m.sku]=m;});
+
+  const ref=ws['!ref']||'A1:Z2000';
+  const range=XLSX.utils.decode_range(ref);
+  const maxRow=range.e.r;
+
+  function celda(col,row){
+    const addr=XLSX.utils.encode_cell({r:row,c:col});
+    const cell=ws[addr];
+    if(!cell||cell.v===null||cell.v===undefined) return null;
+    return cell.v;
+  }
+
+  // Buscar la fila donde está el encabezado "No OP" para saber desde dónde empezar
+  let startRow=0;
+  for(let r=0;r<=30;r++){
+    const b=celda(1,r);
+    if(b&&String(b).trim()==='No OP'){startRow=r+1;break;}
+  }
+  // Si no encontró encabezado, empezar desde fila 1
+  if(!startRow) startRow=1;
+
+  let curOp=null,curModelo=null,curSkuComp=null,curNombreComp=null;
+  let pendingOpRow=null; // para manejar OPs en celdas combinadas
+  const opMap={};let ops=0,mats=0,errs=[];
+
+  for(let r=startRow;r<=maxRow;r++){
+    const colB=celda(1,r);
+    const colD=celda(3,r);
+    const colG=celda(6,r);
+    const colI=celda(8,r);
+    const colJ=celda(9,r);
+
+    // OP real (formato OP09247255 o OPG01704 o OPGS00364)
+    if(colB&&/^OP/i.test(String(colB).trim())&&String(colB).trim().length>3){
+      curOp=String(colB).trim();curModelo=null;curSkuComp=null;curNombreComp=null;
+    }
+    // Modelo
+    if(colD){
+      const d=String(colD).trim();
+      if(d&&d!=='Modelo'&&d!=='Descripción') curModelo=d;
+    }
+    // SKU componente
+    if(colG){
+      const g=String(colG).trim();
+      if(g&&g!=='No Componente'&&/^\d/.test(g)){curSkuComp=g;curNombreComp=null;}
+    }
+    // Nombre componente
+    if(colI&&curSkuComp){
+      const v=String(colI).trim();
+      if(v&&v!=='Nombre Componente') curNombreComp=v;
+    }
+    // Cantidad — col J (Consumo Esperados)
+    if(colJ!==null&&typeof colJ==='number'&&colJ>0&&curSkuComp&&curOp){
+      const sku=String(curSkuComp);
+      const nom=(curNombreComp||'').toUpperCase();
+      if(sku.startsWith('106')&&nom.includes('MELAMINA')){
+        const mat=catBySku[sku];
+        const color=mat?mat.color:nom;
+        const grosor=mat?(mat.grosor||'').toLowerCase().replace(/\s+/g,''):'';
+        if(!opMap[curOp]){
+          opMap[curOp]={area:excelAreaId,op:curOp,sku:curOp,modelo:curModelo||'',
+            color:'',grosor:'',cantidad:0,
+            fecha:fechaProd||new Date().toLocaleDateString('es-CL'),materiales:[]};
+          ops++;
+        }
+        if(!opMap[curOp].color)  opMap[curOp].color=color;
+        if(!opMap[curOp].grosor) opMap[curOp].grosor=grosor;
+        opMap[curOp].materiales.push({nombre:curNombreComp||sku,skuMat:sku,planificado:colJ});
+        mats++;
+      }
+    }
+  }
+  finalizarCarga(opMap,ops,mats,errs,fileName,'Dynamics');
+}
+
+function finalizarCarga(opMap,ops,mats,errs,fileName,formato){
+  Object.values(opMap).forEach(o=>{
+    const idx=DB.ops.findIndex(x=>x.op===o.op);
+    if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);
+    if(typeof fbGuardarOP==='function') fbGuardarOP(o);
+  });
+  const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
+  const an=DB.areas.find(a=>a.id===excelAreaId)?.nombre||excelAreaId;
+  historial.unshift({nombre:fileName,area:an,ops,mats,hora,formato});
+  rHist();
+  const st=document.getElementById('exst');
+  st.innerHTML='<div style="background:var(--green-bg);border:.5px solid var(--green);border-radius:var(--r);padding:12px 16px;font-size:13px;color:var(--green-t);font-family:monospace;margin-bottom:8px;">'+
+    '<i class="ti ti-check"></i> <strong>'+fileName+'</strong> — '+ops+' OPs · '+mats+' materiales de melamina en '+an+
+    ' <span style="font-size:10px;opacity:.7;">('+formato+')</span></div>'+
+    (errs.length?'<div style="background:var(--amber-bg);border:.5px solid var(--amber);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--amber-t);font-family:monospace;"><i class="ti ti-alert-triangle"></i> '+errs.length+' advertencias:<br>'+errs.slice(0,5).map(x=>'· '+x).join('<br>')+'</div>':'');
+  document.getElementById('exinput').value='';
+  document.getElementById('ex-paso2').style.opacity='1';
+  document.getElementById('ex-paso2').style.pointerEvents='all';
+  updMetrics();rReg();rPlanif();rComp();
+}
+
 function rHist(){
   const card=document.getElementById('exhist');const tbody=document.getElementById('thist');
   if(!historial.length){card.style.display='none';return;}
   card.style.display='block';
-  tbody.innerHTML=historial.map(h=>'<tr><td style="font-family:\'DM Mono\',monospace;font-size:12px;">'+h.nombre+'</td><td><span class="badge b-op">'+h.area+'</span></td><td style="font-family:\'DM Mono\',monospace;">'+h.ops+'</td><td style="font-family:\'DM Mono\',monospace;">'+h.mats+'</td><td style="font-family:\'DM Mono\',monospace;color:var(--text2);">'+h.hora+'</td></tr>').join('');
+  tbody.innerHTML=historial.map(h=>'<tr><td style="font-family:monospace;font-size:12px;">'+h.nombre+'</td><td><span class="badge b-op">'+h.area+'</span></td><td style="font-family:monospace;">'+h.ops+'</td><td style="font-family:monospace;">'+h.mats+'</td><td style="font-family:monospace;color:var(--text2);">'+h.hora+'</td><td><span class="badge '+(h.formato==='Dynamics'?'b-rec':'b-ok')+'">'+( h.formato||'estándar')+'</span></td></tr>').join('');
 }
 
 // PAPELERA
 function rPapelera(){
   const cont=document.getElementById('papcont');const btn=document.getElementById('bvaciar');
-  if(!papelera.length){if(btn)btn.style.display='none';cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;"><i class="ti ti-leaf" style="font-size:32px;display:block;margin-bottom:8px;"></i>La papelera está vacía</div>';return;}
+  if(!papelera.length){if(btn)btn.style.display='none';cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:monospace;font-size:13px;"><i class="ti ti-leaf" style="font-size:32px;display:block;margin-bottom:8px;"></i>La papelera está vacía</div>';return;}
   if(btn)btn.style.display='inline-flex';
   const an=Object.fromEntries(DB.areas.map(a=>[a.id,a.nombre]));
   cont.innerHTML='';
@@ -2694,8 +3285,8 @@ function rPapelera(){
     const div=document.createElement('div');div.className='ti';
     div.innerHTML='<div style="flex:1;"><div class="fc g1" style="margin-bottom:4px;"><span class="badge b-op">'+(an[r.area]||r.area)+'</span><span class="badge b-op">'+r.op+'</span></div>'+
       '<p style="font-size:14px;font-weight:500;">'+r.modelo+' · '+r.color+' · '+r.grosor+'</p>'+
-      '<p style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;">'+r.operario+' · '+r.maquina+' · '+r.fecha+'</p>'+
-      '<p style="font-size:11px;color:var(--text3);font-family:\'DM Mono\',monospace;margin-top:2px;"><i class="ti ti-clock" style="font-size:11px;vertical-align:-1px;"></i> Eliminado '+r.eliminadoEn+'</p></div>'+
+      '<p style="font-size:12px;color:var(--text2);font-family:monospace;">'+r.operario+' · '+r.maquina+' · '+r.fecha+'</p>'+
+      '<p style="font-size:11px;color:var(--text3);font-family:monospace;margin-top:2px;"><i class="ti ti-clock" style="font-size:11px;vertical-align:-1px;"></i> Eliminado '+r.eliminadoEn+'</p></div>'+
       '<button class="btn btn-ghost btn-sm" onclick="restaurar('+i+')"><i class="ti ti-arrow-back-up"></i> Restaurar</button>';
     cont.appendChild(div);
   });
