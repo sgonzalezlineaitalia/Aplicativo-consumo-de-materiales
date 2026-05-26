@@ -77,32 +77,128 @@ window.fbEliminarRegistro = async function(fbId) {
   }
 };
 
-// ─── Escuchar cambios en tiempo real ───
-window.fbEscuchar = function() {
-  onSnapshot(collection(db, "registros"), (snap) => {
-    DB.registros = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
-    if(typeof updMetrics === 'function') { updMetrics(); rReg(); rPlanif(); rComp(); }
-  });
-  onSnapshot(collection(db, "ops"), (snap) => {
-    if(snap.docs.length > 0) {
-      DB.ops = snap.docs.map(d => d.data());
-      if(typeof rAreas === 'function') rAreas();
-    }
-  });
+// ─── Eliminar OP de Firestore ───
+window.fbEliminarOP = async function(opId) {
+  try { await deleteDoc(doc(db, "ops", opId)); }
+  catch(e) { console.error("Error eliminando OP:", e); }
 };
 
-// ─── Inicializar: cargar datos al abrir la app ───
+// ─── Actualizar registro en Firestore ───
+window.fbActualizarRegistro = async function(fbId, registro) {
+  try {
+    const r = {...registro}; delete r._fbId;
+    await setDoc(doc(db, "registros", fbId), r);
+  } catch(e) { console.error("Error actualizando registro:", e); }
+};
+
+// ─── Guardar/actualizar sobrante en Firestore ───
+window.saveSobrante = async function(sob) {
+  try { await setDoc(doc(db, "sobrantes", sob.id), sob); }
+  catch(e) { console.error("Error guardando sobrante:", e); }
+};
+
+// ─── Eliminar sobrante de Firestore ───
+window.fbEliminarSobrante = async function(id) {
+  try { await deleteDoc(doc(db, "sobrantes", id)); }
+  catch(e) { console.error("Error eliminando sobrante:", e); }
+};
+
+// ─── Guardar área en Firestore ───
+window.fbGuardarArea = async function(area) {
+  try { await setDoc(doc(db, "areas", area.id), area); }
+  catch(e) { console.error("Error guardando área:", e); }
+};
+
+// ─── Guardar usuario en Firestore ───
+window.fbGuardarUsuario = async function(usr) {
+  try { await addDoc(collection(db, "usuarios"), usr); }
+  catch(e) { console.error("Error guardando usuario:", e); }
+};
+
+// ─── Cargar sobrantes desde Firestore ───
+window.fbCargarSobrantes = async function() {
+  try {
+    const snap = await getDocs(collection(db, "sobrantes"));
+    return snap.docs.map(d => d.data());
+  } catch(e) { console.error("Error cargando sobrantes:", e); return []; }
+};
+
+// ─── Cargar áreas y usuarios desde Firestore ───
+window.fbCargarConfig = async function() {
+  try {
+    const [areasSnap, usrsSnap] = await Promise.all([
+      getDocs(collection(db, "areas")),
+      getDocs(collection(db, "usuarios"))
+    ]);
+    if(areasSnap.docs.length > 0) {
+      areasSnap.docs.forEach(d => {
+        const a = d.data();
+        const idx = DB.areas.findIndex(x => x.id === a.id);
+        if(idx >= 0) DB.areas[idx] = {...DB.areas[idx], ...a};
+      });
+    }
+    if(usrsSnap.docs.length > 0) DB.usuarios = usrsSnap.docs.map(d => d.data());
+  } catch(e) { console.error("Error cargando config:", e); }
+};
+
+// ─── Refrescar UI completa ───
+window.fbRefreshUI = function() {
+  if(typeof rAreas === 'function') rAreas();
+  if(typeof rUsers === 'function') rUsers();
+  const supScreen = document.getElementById('screen-supervisor');
+  if(supScreen && supScreen.classList.contains('active')) {
+    if(typeof updMetrics === 'function') updMetrics();
+    if(typeof rReg === 'function') rReg();
+    if(typeof rPlanif === 'function') rPlanif();
+    if(typeof rComp === 'function') rComp();
+    if(typeof rSA === 'function') rSA();
+    if(typeof rPapelera === 'function') rPapelera();
+    if(typeof rAlmacen === 'function') rAlmacen();
+  }
+  const opScreen = document.getElementById('screen-operario');
+  if(opScreen && opScreen.classList.contains('active')) {
+    if(typeof fops === 'function') fops();
+  }
+};
+
+// ─── Inicializar: cargar todos los datos ───
 window.fbInit = async function() {
   const indicator = document.getElementById('fb-status');
   if(indicator) { indicator.textContent = '☁ Conectando...'; indicator.style.color = 'var(--amber-t)'; }
   try {
-    const [regs, ops] = await Promise.all([fbCargarRegistros(), fbCargarOPs()]);
+    const [regs, ops, sobrantes] = await Promise.all([
+      fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes()
+    ]);
     if(regs.length > 0) DB.registros = regs;
     if(ops.length > 0) DB.ops = ops;
+    if(sobrantes.length > 0) DB.sobrantes = sobrantes;
+    await fbCargarConfig();
     if(indicator) { indicator.textContent = '☁ En línea'; indicator.style.color = 'var(--green-t)'; }
-    fbEscuchar();
-    if(typeof updMetrics === 'function') { updMetrics(); rReg(); rPlanif(); rComp(); }
-    console.log("Firebase listo —", regs.length, "registros,", ops.length, "OPs");
+
+    // Escuchar cambios en tiempo real
+    onSnapshot(collection(db, "registros"), (snap) => {
+      DB.registros = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
+      fbRefreshUI();
+    });
+    onSnapshot(collection(db, "ops"), (snap) => {
+      if(snap.docs.length > 0) {
+        DB.ops = snap.docs.map(d => d.data());
+        if(typeof rAreas === 'function') rAreas();
+        if(typeof rUsers === 'function') rUsers();
+        fbRefreshUI();
+      }
+    });
+    onSnapshot(collection(db, "sobrantes"), (snap) => {
+      DB.sobrantes = snap.docs.map(d => d.data());
+      if(typeof rAlmacen === 'function') rAlmacen();
+      if(typeof updAlmacenBadge === 'function') updAlmacenBadge();
+    });
+
+    // Siempre actualizar el login con datos frescos
+    if(typeof rAreas === 'function') rAreas();
+    if(typeof rUsers === 'function') rUsers();
+    fbRefreshUI();
+    console.log("Firebase listo —", regs.length, "registros,", ops.length, "OPs,", sobrantes.length, "sobrantes");
   } catch(e) {
     if(indicator) { indicator.textContent = '☁ Sin conexión'; indicator.style.color = 'var(--red-t)'; }
     console.error("Error Firebase init:", e);
@@ -110,7 +206,7 @@ window.fbInit = async function() {
 };
 
 // Esperar a que el DOM esté listo
-window.addEventListener('load', () => setTimeout(fbInit, 500));
+window.addEventListener('load', () => setTimeout(fbInit, 800));
 </script>
 <style>
 :root{
@@ -2536,6 +2632,7 @@ function eliminarSobrante(id){
   if(!confirm('¿Eliminar este pedazo del almacén?')) return;
   const i = DB.sobrantes.findIndex(x=>x.id===id);
   if(i>=0) DB.sobrantes.splice(i,1);
+  if(typeof fbEliminarSobrante==='function') fbEliminarSobrante(id);
   if(typeof deleteSobrante === 'function') deleteSobrante(id).catch(console.error);
   rAlmacen();
 }
@@ -2699,104 +2796,23 @@ function generarResumenExcel(rows){
   return [headers, ...dataRows];
 }
 
+// ═══════════ CALENDARIO ═══════════
+if(!DB.sobrantes) DB.sobrantes = [];
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
-  
-
-// ═══════════ CALENDARIO ═══════════
-const FERIADOS_MX = new Set(['01-01','05-02','21-03','01-05','16-09','02-11','25-12']);
-
-function esFeriado(d){
-  // Usar UTC para evitar desfase por zona horaria
-  const mm = String(d.getUTCMonth()+1).padStart(2,'0');
-  const dd = String(d.getUTCDate()).padStart(2,'0');
-  return FERIADOS_MX.has(dd+'-'+mm);
-}
-
-function restarDiasHabiles(fecha, dias){
-  // Usar UTC para evitar desfase por zona horaria (México UTC-6)
-  const d = new Date(fecha);
-  let restados = 0;
-  while(restados < dias){
-    d.setUTCDate(d.getUTCDate() - 1);
-    const dow = d.getUTCDay(); // 0=dom, 6=sab
-    if(dow !== 0 && dow !== 6 && !esFeriado(d)) restados++;
-  }
-  return d;
-}
-
-function fechaToStr(d){
-  // Convierte Date a dd/mm/yyyy usando UTC para evitar desfase
-  const dd = String(d.getUTCDate()).padStart(2,'0');
-  const mm = String(d.getUTCMonth()+1).padStart(2,'0');
-  const yyyy = d.getUTCFullYear();
-  return dd+'/'+mm+'/'+yyyy;
-}
-
-function parseFechaExcel(raw){
-  // raw puede ser número serial de Excel, objeto Date, o string
-  if(!raw) return null;
-  // XLSX.js puede entregar un objeto Date JS — asegurar que esté en UTC
-  if(raw instanceof Date || (typeof raw === 'object' && raw.getTime)){
-    // Reconstruir en UTC usando los componentes de la fecha local del objeto
-    const d = new Date(raw);
-    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  }
-  const n = Number(raw);
-  if(!isNaN(n) && n > 40000 && n < 60000){
-    // Número serial de Excel → milisegundos UTC
-    return new Date(Math.round((n - 25569) * 86400 * 1000));
-  }
-  // String: intentar dd/mm/yy, dd/mm/yyyy, yyyy-mm-dd
-  const s = String(raw).trim();
-  let m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
-  if(m){
-    let [,d,mo,y] = m;
-    if(y.length===2) y = '20'+y;
-    return new Date(Date.UTC(parseInt(y), parseInt(mo)-1, parseInt(d)));
-  }
-  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if(m) return new Date(Date.UTC(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3])));
-  return null;
-}
-
-// ═══════════ CATÁLOGO DE MELAMINAS ═══════════
-const CATALOGO_MELAMINAS = [{"sku": "10601001", "nombre": "MELAMINA ARCE MAPLE 19 MM", "color": "Arce Maple", "grosor": "19MM"}, {"sku": "10601002", "nombre": "MELAMINA MAPLE ARCE 12 MM", "color": "Maple Arce", "grosor": "12MM"}, {"sku": "10601003", "nombre": "MELAMINA GRAFITO 12 MM", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601004", "nombre": "MELAMINA GRAFITO 19 MM", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601005", "nombre": "MELAMINA GRAFITO 28 MM", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601006", "nombre": "MELAMINA GRIS 12 MM", "color": "Gris", "grosor": "12MM"}, {"sku": "10601007", "nombre": "MELAMINA GRIS 28 MM", "color": "Gris", "grosor": "28MM"}, {"sku": "10601008", "nombre": "MELAMINA GRIS 19 MM", "color": "Gris", "grosor": "19MM"}, {"sku": "10601009", "nombre": "MELAMINA ARCE MAPLE 16 MM", "color": "Arce Maple", "grosor": null}, {"sku": "10601010", "nombre": "MELAMINA CEREZO 16 MM", "color": "Cerezo", "grosor": null}, {"sku": "10601011", "nombre": "MELAMINA NOGAL NEO 16 MM", "color": "Nogal Neo", "grosor": null}, {"sku": "10601012", "nombre": "MELAMINA ARCE MAPLE 28 MM", "color": "Arce Maple", "grosor": "28MM"}, {"sku": "10601013", "nombre": "MELAMINA CEREZO 12 MM", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601014", "nombre": "MELAMINA CEREZO 19 MM", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601015", "nombre": "MELAMINA CEREZO 28 MM", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601016", "nombre": "MELAMINA LUXOR 19 MM", "color": "Luxor", "grosor": "19MM"}, {"sku": "10601017", "nombre": "MELAMINA ROBLE PLATA 28 MM", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601018", "nombre": "MELAMINA ROBLE PLATA 19 MM", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601019", "nombre": "MELAMINA ROBLE PLATA 12 MM", "color": "Roble Plata", "grosor": "12MM"}, {"sku": "10601020", "nombre": "MELAMINA BLANCO FROSTY 16 MM", "color": "Blanco Frosty", "grosor": null}, {"sku": "10601021", "nombre": "MELAMINA WENGUE 16 MM", "color": "Wengue", "grosor": null}, {"sku": "10601022", "nombre": "MELAMINA OYAMEL 16 MM", "color": "Oyamel", "grosor": null}, {"sku": "10601023", "nombre": "MELAMINA ROBLE TABACO 16 MM", "color": "Roble Tabaco", "grosor": null}, {"sku": "10601026", "nombre": "MELAMINA ANAHUAC 12MM ÉBANO", "color": "Anahuac", "grosor": "12MM"}, {"sku": "10601027", "nombre": "MELAMINA MONARCA 12MM EUCALIPT", "color": "Monarca", "grosor": "12MM"}, {"sku": "10601028", "nombre": "MELAMINA ENCINO POLAR 12 MM", "color": "Encino Polar", "grosor": "12MM"}, {"sku": "10601029", "nombre": "MELAMINA ANAHUAC 16MM", "color": "Anahuac", "grosor": null}, {"sku": "10601031", "nombre": "MELAMINA MONARCA 16MM EUCALIPT", "color": "Monarca", "grosor": null}, {"sku": "10601033", "nombre": "MELAMINA BLANCO FROSTY 12 MM", "color": "Blanco Frosty", "grosor": "12MM"}, {"sku": "10601034", "nombre": "MELAMINA BLANCO FROSTY 19 MM", "color": "Blanco Frosty", "grosor": "19MM"}, {"sku": "10601035", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601036", "nombre": "MELAMINA OYAMEL 19 MM", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601037", "nombre": "MELAMINA ENCINO POLAR 16 MM", "color": "Encino Polar", "grosor": null}, {"sku": "10601038", "nombre": "MELAMINA OYAMEL 12 MM", "color": "Oyamel", "grosor": "12MM"}, {"sku": "10601039", "nombre": "MELAMINA  ARCE 12 MM CARB II", "color": "Arce", "grosor": "12MM"}, {"sku": "10601040", "nombre": "MELAMINA ARCE 19 MM CARB II", "color": "Arce", "grosor": "19MM"}, {"sku": "10601041", "nombre": "MELAMINA ROBLE PLATA 19MM CARB", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601042", "nombre": "MELAMINA OYAMEL 19 MM CARB II", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601045", "nombre": "MELAMINA MONARCA 28MM EUCALIPTO", "color": "Monarca", "grosor": "28MM"}, {"sku": "10601046", "nombre": "MELAMINA WENGUE 214 19 MM 2 CA", "color": "Wengue 214", "grosor": "19MM"}, {"sku": "10601047", "nombre": "MELAMINA WENGUE 214 28 MM 2 CA", "color": "Wengue 214", "grosor": "28MM"}, {"sku": "10601048", "nombre": "MELAMINA OYAMEL DE 28 MM", "color": "Oyamel De", "grosor": "28MM"}, {"sku": "10601049", "nombre": "MELAMINA ANAHUAC 28MM", "color": "Anahuac", "grosor": "28MM"}, {"sku": "10601050", "nombre": "MELAMINA NOGAL NEO 12 MM", "color": "Nogal Neo", "grosor": "12MM"}, {"sku": "10601051", "nombre": "MELAMINA NOGAL NEO 19 MM", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601052", "nombre": "MELAMINA NOGAL NEO 28 MM", "color": "Nogal Neo", "grosor": "28MM"}, {"sku": "10601053", "nombre": "MELAMINA ROBLE TABACO 19 MM", "color": "Roble Tabaco", "grosor": "19MM"}, {"sku": "10601054", "nombre": "MELAMINA ROBLE TABACO 28 MM", "color": "Roble Tabaco", "grosor": "28MM"}, {"sku": "10601055", "nombre": "MELAMINA ROBLE TABACO 12 MM", "color": "Roble Tabaco", "grosor": "12MM"}, {"sku": "10601056", "nombre": "MELAMINA ARCE MASISA 19 MM", "color": "Arce Masisa", "grosor": "19MM"}, {"sku": "10601057", "nombre": "MELAMINA GRAFITO 12 MM CARB II", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601058", "nombre": "MELAMINA GRAFITO 19 MM CARB II", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601059", "nombre": "MELAMINA GRAFITO 28 MM CARB II", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601060", "nombre": "MELAMINA ARCE 28 MM CARB II", "color": "Arce", "grosor": "28MM"}, {"sku": "10601062", "nombre": "MELAMINA ROBLE PLATA 28MM CARB", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601063", "nombre": "MELAMINA CEREZO 12 MM CARB II", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601064", "nombre": "MELAMINA CEREZO 19 MM CARB II", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601065", "nombre": "MELAMINA CEREZO 28 MM CARB II", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601067", "nombre": "MELAMINA GRIS 19 MM CARB II", "color": "Gris", "grosor": "19MM"}, {"sku": "10601069", "nombre": "MELAMINA WENGUE 19 MM", "color": "Wengue", "grosor": "19MM"}, {"sku": "10601070", "nombre": "MELAMINA SOLAR OAK G25 4 X9 FT", "color": "Solar Oak G25 4 X9 Ft", "grosor": null}, {"sku": "10601071", "nombre": "MELAMINA BILTMORE CHERRY 4 X 9", "color": "Biltmore Cherry 4 X 9", "grosor": null}, {"sku": "10601072", "nombre": "MELAMINA AMBER CHERRY 4 x 9 ft", "color": "Amber Cherry 4 X 9 Ft", "grosor": null}, {"sku": "10601073", "nombre": "MELAMINA KENSINGTON MAPLE 4X9", "color": "Kensington Maple 4X9", "grosor": null}, {"sku": "10601074", "nombre": "MELAMINA CAFELLE 4 X 9 FT", "color": "Cafelle 4 X 9 Ft", "grosor": null}, {"sku": "10601075", "nombre": "MELAMINA WILLIAMSBURG CHERRY", "color": "Williamsburg Cherry", "grosor": null}, {"sku": "10601076", "nombre": "MELAMINA TUSCAN WALNUT 4 X 9", "color": "Tuscan Walnut 4 X 9", "grosor": null}, {"sku": "10601077", "nombre": "MELAMINA TABACO 12 MM CARB II", "color": "Tabaco", "grosor": "12MM"}, {"sku": "10601078", "nombre": "MELAMINA TABACO 19 MM CARB II", "color": "Tabaco", "grosor": "19MM"}, {"sku": "10601079", "nombre": "MELAMINA TABACO 28 MM CARB II", "color": "Tabaco", "grosor": "28MM"}, {"sku": "10601081", "nombre": "MELAMINA AFRICAN WALNUT 4 X 9", "color": "African Walnut 4 X 9", "grosor": null}, {"sku": "10601082", "nombre": "MELAMINA BLANCO 19 MM CARB II", "color": "Blanco", "grosor": "19MM"}, {"sku": "10601089", "nombre": "MELAMINA P. CENIZA 19 MM", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601090", "nombre": "MELAMINA P. CENIZA 28 MM", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601091", "nombre": "MELAMINA WENGUE 28 MM", "color": "Wengue", "grosor": "28MM"}, {"sku": "10601092", "nombre": "MELAMINA P. CENIZA 12MM", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601093", "nombre": "MELAMINA WENGUE 12 MM", "color": "Wengue", "grosor": "12MM"}, {"sku": "10601095", "nombre": "MELAMINA P. CENIZA 12MM CARBII", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601096", "nombre": "MELAMINA P. CENIZA 19MM CARBII", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601097", "nombre": "MELAMINA P. CENIZA 28MM CARBII", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601098", "nombre": "MELAMINA NOGAL NEO19 MM CARBII", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601099", "nombre": "MELAMINA P. CENIZA 16 MM", "color": "P. Ceniza", "grosor": null}, {"sku": "10601100", "nombre": "MELAMINA NUUK SENSE 16 MM", "color": "Nuuk Sense", "grosor": null}, {"sku": "10601101", "nombre": "MELAMINA GRIS CLARO 19 MM", "color": "Gris Claro", "grosor": "19MM"}, {"sku": "10601102", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601104", "nombre": "MELAMINA ANAHUAC 19MM ÉBANO", "color": "Anahuac", "grosor": "19MM"}, {"sku": "10601105", "nombre": "MELAMINA MONARCA 19MM EUCALIPTO", "color": "Monarca", "grosor": "19MM"}, {"sku": "10601106", "nombre": "MELAMINA ENCINO POLAR 19 MM", "color": "Encino Polar", "grosor": "19MM"}, {"sku": "10601107", "nombre": "MELAMINA ENCINO POLAR 28 MM", "color": "Encino Polar", "grosor": "28MM"}, {"sku": "10601108", "nombre": "MELAMINA NEGRA 19MM", "color": "Negra", "grosor": "19MM"}, {"sku": "10601110", "nombre": "MELAMINA SUPERPAN 91B ROBLE RE", "color": "Superpan 91B Roble Re", "grosor": null}, {"sku": "10601111", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601112", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601113", "nombre": "MELAMINA DURAPLAY BLANCO FROST", "color": "Duraplay Blanco Frost", "grosor": null}, {"sku": "10601116", "nombre": "MELAMINA GRIS CLARO 28 MM", "color": "Gris Claro", "grosor": "28MM"}, {"sku": "10601117", "nombre": "MELAMINA NEGRA DE 12 MM", "color": "Negra De", "grosor": "12MM"}, {"sku": "10601120", "nombre": "MELAMINA IMPORTACION CENIZO", "color": "Importacion Cenizo", "grosor": null}, {"sku": "10601121", "nombre": "MELAMINA NEGRA 28 MM", "color": "Negra", "grosor": "28MM"}, {"sku": "10601122", "nombre": "MELAMINA IMPORTACION CAOBA", "color": "Importacion Caoba", "grosor": null}, {"sku": "10601123", "nombre": "MELAMINA OXFORD 19MM", "color": "Oxford", "grosor": "19MM"}, {"sku": "10601124", "nombre": "MELAMINA ZAFIRO 19MM", "color": "Zafiro", "grosor": "19MM"}, {"sku": "10601125", "nombre": "MELAMINA OXFORD 28MM", "color": "Oxford", "grosor": "28MM"}, {"sku": "10601126", "nombre": "MELAMINA ZAFIRO 28MM", "color": "Zafiro", "grosor": "28MM"}, {"sku": "10601127", "nombre": "MELAMINA OXFORD 12MM", "color": "Oxford", "grosor": "12MM"}, {"sku": "10601128", "nombre": "MELAMINA ZAFIRO 12MM", "color": "Zafiro", "grosor": "12MM"}, {"sku": "10601129", "nombre": "MELAMINA ROBLE MERIDA 19 MM", "color": "Roble Merida", "grosor": "19MM"}, {"sku": "10601130", "nombre": "MELAMINA ROBLE MERIDA 16 MM", "color": "Roble Merida", "grosor": null}, {"sku": "10601131", "nombre": "MELAMINA ROBLE ETERNITY 28MM", "color": "Roble Eternity", "grosor": "28MM"}, {"sku": "10601132", "nombre": "MELAMINA ROBLE ETERNITY 19MM", "color": "Roble Eternity", "grosor": "19MM"}, {"sku": "10601133", "nombre": "MELAMINA ROBLE TRIGO 28MM", "color": "Roble Trigo", "grosor": "28MM"}, {"sku": "10601134", "nombre": "MELAMINA ROBLE TRIGO 19MM", "color": "Roble Trigo", "grosor": "19MM"}, {"sku": "10601135", "nombre": "MELAMINA ROBLE SINATRA 28MM", "color": "Roble Sinatra", "grosor": "28MM"}, {"sku": "10601136", "nombre": "MELAMINA ROBLE SINATRA 19MM", "color": "Roble Sinatra", "grosor": "19MM"}, {"sku": "10601137", "nombre": "MELAMINA ROBLE SANTANA 28MM", "color": "Roble Santana", "grosor": "28MM"}, {"sku": "10601138", "nombre": "MELAMINA ROBLE SANTANA 19MM", "color": "Roble Santana", "grosor": "19MM"}, {"sku": "10601139", "nombre": "MELAMINA TEKA ARTICO 24MM", "color": "Teka Artico", "grosor": null}, {"sku": "10601140", "nombre": "MELAMINA NOGAL BRITANICO 28 MM", "color": "Nogal Britanico", "grosor": "28MM"}, {"sku": "10601141", "nombre": "MELAMINA NOGAL BRITANICO 19MM", "color": "Nogal Britanico", "grosor": "19MM"}, {"sku": "10601142", "nombre": "MELAMINA FRESNO BRUMA 19MM", "color": "Fresno Bruma", "grosor": "19MM"}, {"sku": "10601143", "nombre": "MELAMINA NOGAL TERRACOTA 30MM", "color": "Nogal Terracota", "grosor": null}, {"sku": "10601145", "nombre": "MELAMINA CENIZO TEXTURIZADA 19 MM", "color": "Cenizo Texturizada", "grosor": "19MM"}, {"sku": "10601146", "nombre": "MELAMINA NOGAL TEXTURIZADA 19 MM", "color": "Nogal Texturizada", "grosor": "19MM"}, {"sku": "10601147", "nombre": "MELAMINA NOGAL TEXTURIZADA 28 MM", "color": "Nogal Texturizada", "grosor": "28MM"}, {"sku": "10601148", "nombre": "MELAMINA ROMERO 19 MM", "color": "Romero", "grosor": "19MM"}, {"sku": "10601149", "nombre": "MELAMINA ROMERO 28 MM", "color": "Romero", "grosor": "28MM"}, {"sku": "10601150", "nombre": "MELAMINA TERRA 19 MM", "color": "Terra", "grosor": "19MM"}, {"sku": "10601151", "nombre": "MELAMINA TERRA 28 MM", "color": "Terra", "grosor": "28MM"}, {"sku": "10601152", "nombre": "MELAMINA ROBLE MERIDA 28 MM", "color": "Roble Merida", "grosor": "28MM"}, {"sku": "10601154", "nombre": "MELAMINA ROMERO 12MM", "color": "Romero", "grosor": "12MM"}, {"sku": "10601155", "nombre": "MELAMINA TERRA 12MM", "color": "Terra", "grosor": "12MM"}, {"sku": "10601156", "nombre": "MELAMINA ZAFIRO 16 MM", "color": "Zafiro", "grosor": null}, {"sku": "10601157", "nombre": "MELAMINA NEGRA 16 MM", "color": "Negra", "grosor": null}, {"sku": "10601158", "nombre": "MELAMINA VISION 19 MM", "color": "Vision", "grosor": "19MM"}, {"sku": "10601159", "nombre": "MELAMINA OLMO FORESTA 19 MM", "color": "Olmo Foresta", "grosor": "19MM"}, {"sku": "10601160", "nombre": "MELAMINA OLMO FORESTA 28 MM", "color": "Olmo Foresta", "grosor": "28MM"}, {"sku": "10601161", "nombre": "MELAMINA BRAZZAVILLE WENGUE 19 MM", "color": "Brazzaville Wengue", "grosor": "19MM"}, {"sku": "10601162", "nombre": "MELAMINA BRAZZAVILLE WENGUE 28 MM", "color": "Brazzaville Wengue", "grosor": "28MM"}, {"sku": "10601163", "nombre": "MELAMINA ENCINO CALIZA 19 MM", "color": "Encino Caliza", "grosor": "19MM"}, {"sku": "10601164", "nombre": "MELAMINA ENCINO CALIZA 28 MM", "color": "Encino Caliza", "grosor": "28MM"}, {"sku": "10601165", "nombre": "MELAMINA LATTE 19 MM", "color": "Latte", "grosor": "19MM"}, {"sku": "10601166", "nombre": "MELAMINA LATTE 28 MM", "color": "Latte", "grosor": "28MM"}, {"sku": "10602003", "nombre": "MDF 5.5 MM MELAMINA ARCE MAPLE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602004", "nombre": "MDF 5.5 MM MELAMINA GRAFITO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602006", "nombre": "MDF 5.5 MM MELAMINA GRIS", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602007", "nombre": "MDF 5.5 MM MELAMINA CEREZO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602008", "nombre": "MDF 5.5 MM MELAMINA NOGAL NEO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602009", "nombre": "MDF 28 MM MELAMINA BLANCA MATE", "color": "Mdf", "grosor": "28MM"}, {"sku": "10602010", "nombre": "MDF 5.5 MM MELAMINA MONARCA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602011", "nombre": "MDF 5.5 MM MELAMINA BLANCO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602012", "nombre": "MDF 5.5 MM MELAMINA OYAMEL", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602013", "nombre": "MDF 5.5 MM MELAMINA ROBLE TABA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602017", "nombre": "MDF 5.5 MM MELAMINA WENGUE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602018", "nombre": "MDF 5.5 MM MELAMINA PRECOMPUES", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602023", "nombre": "MDF 5.5 MM MELAMINA ANAHUAC", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602038", "nombre": "MDF 5.5 MM MELAMINA ENCINO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602039", "nombre": "MDF 5.5 MM MELAMINA CARRARA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602050", "nombre": "MDF 5.5 MM MELAMINA ROBLE ETERNITY", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602051", "nombre": "MDF 5.5 MM MELAMINA ROBLE TRIGO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602052", "nombre": "MDF 5.5 MM MELAMINA ROBLE SINATRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602053", "nombre": "MDF 5.5 MM MELAMINA NEGRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602054", "nombre": "MDF 5.5 MM MELAMINA ZAFIRO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602063", "nombre": "MDF 5.5 MM MELAMINA ROBLE MERIDA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602064", "nombre": "MDF 19 MM MELAMINA PRECOMPUESTO CENIZA", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602065", "nombre": "MDF 19 MM MELAMINA MONARCA", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602066", "nombre": "MDF 19 MM MELAMINA ENCINO POLAR", "color": "Mdf", "grosor": "19MM"}, {"sku": "10602067", "nombre": "MDF 5.5 MM MELAMINA OXFORD", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602068", "nombre": "MDF 5.5 MM MELAMINA ROMERO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602069", "nombre": "MDF 5.5 MM MELAMINA TERRA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602071", "nombre": "MDF 5.5 MM MELAMINA OLMO FORESTA", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602072", "nombre": "MDF 5.5 MM MELAMINA CONCRETO OBSCURO", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602073", "nombre": "MDF 5.5 MM MELAMINA BRAZZAVILLE WENGUE", "color": "Mdf", "grosor": "5.5MM"}, {"sku": "10602090", "nombre": "MDF 5.5 MM MELAMINA ENCINO CALIZA", "color": "Mdf", "grosor": "5.5MM"}];
-
-// Busca en el catálogo por color + grosor (tolerante a variaciones)
-function buscarMelamina(color, grosor){
-  if(!color || !grosor) return null;
-  const c = color.trim().toLowerCase();
-  const g = grosor.trim().toLowerCase().replace(/\s+/g,'');
-  // Búsqueda exacta primero
-  let found = CATALOGO_MELAMINAS.find(m =>
-    m.color.toLowerCase() === c && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
-  );
-  // Si no, búsqueda parcial por color
-  if(!found) found = CATALOGO_MELAMINAS.find(m =>
-    m.color.toLowerCase().includes(c) && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
-  );
-  if(!found) found = CATALOGO_MELAMINAS.find(m =>
-    c.includes(m.color.toLowerCase()) && m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g
-  );
-  return found || null;
-}
-
-// Obtener colores únicos del catálogo para un grosor dado
-function coloresPorGrosor(grosor){
-  const g = (grosor||'').toLowerCase().replace(/\s+/g,'');
-  return [...new Set(
-    CATALOGO_MELAMINAS
-      .filter(m => m.grosor && m.grosor.toLowerCase().replace(/\s+/g,'') === g)
-      .map(m => m.color)
-  )].sort();
-}
-
-// Grosores únicos disponibles en el catálogo
-const GROSORES_CATALOGO = [...new Set(CATALOGO_MELAMINAS.filter(m=>m.grosor).map(m=>m.grosor))].sort();
-if(!DB.sobrantes) DB.sobrantes = [];
   supArea=null;
-  rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();
+  if(typeof fbCargarRegistros==='function'){
+    Promise.all([fbCargarRegistros(),fbCargarOPs(),fbCargarSobrantes()]).then(([regs,ops,sobs])=>{
+      if(regs.length>0) DB.registros=regs;
+      if(ops.length>0) DB.ops=ops;
+      if(sobs.length>0) DB.sobrantes=sobs;
+      rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();
+      if(typeof rAlmacen==='function') rAlmacen();
+    }).catch(()=>{rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();});
+  } else {
+    rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();
+  }
   const sm=document.getElementById('smaqarea'),su=document.getElementById('susrarea');
   const opts=DB.areas.map(a=>'<option value="'+a.id+'">'+a.nombre+'</option>').join('');
   if(sm)sm.innerHTML=opts; if(su)su.innerHTML=opts;
@@ -3031,7 +3047,10 @@ function abOPs(opIds){
 function cElimOPs(){
   const pin=['o1','o2','o3','o4'].map(id=>document.getElementById(id).value).join('');
   if(pin!==PIN){document.getElementById('operr').style.display='block';['o1','o2','o3','o4'].forEach(id=>document.getElementById(id).value='');document.getElementById('o1').focus();return;}
-  pendOps.forEach(opId=>{const i=DB.ops.findIndex(o=>o.op===opId);if(i>=0)DB.ops.splice(i,1);});
+  pendOps.forEach(opId=>{
+    const i=DB.ops.findIndex(o=>o.op===opId);if(i>=0)DB.ops.splice(i,1);
+    if(typeof fbEliminarOP==='function') fbEliminarOP(opId);
+  });
   selSet.clear();pendOps=[];
   if(selMode)tSelMode();
   cModal('modal-op');
@@ -3128,6 +3147,7 @@ function confSA(ri,opId){
   r.op=op.op;r.sku=op.sku;r.modelo=op.modelo;r.color=op.color;r.grosor=op.grosor;r.sinAsignar=false;
   const mat=op.materiales.find(m=>m.skuMat===r.materiales[0]?.skuMat)||op.materiales[0];
   if(mat&&r.materiales[0]){r.materiales[0].nombre=mat.nombre;r.materiales[0].skuMat=mat.skuMat;r.materiales[0].planificado=mat.planificado;}
+  if(r._fbId && typeof fbActualizarRegistro==='function') fbActualizarRegistro(r._fbId, r);
   updMetrics();rReg();rPlanif();rComp();rSA();
 }
 
@@ -3149,9 +3169,10 @@ function aMaq(){
   if(!n)return;const target=DB.areas.find(a=>a.id===aId)||DB.areas[0];
   if(target.maquinas.includes(n)){alert('Ya existe');return;}
   target.maquinas.push(n);document.getElementById('imaq').value='';
+  if(typeof fbGuardarArea==='function') fbGuardarArea(target);
   rMaqTab();rFMaq();
 }
-function dMaq(n){if(!confirm('¿Eliminar "'+n+'"?'))return;DB.areas.forEach(a=>{a.maquinas=a.maquinas.filter(m=>m!==n);});rMaqTab();rFMaq();}
+function dMaq(n){if(!confirm('¿Eliminar "'+n+'"?'))return;DB.areas.forEach(a=>{a.maquinas=a.maquinas.filter(m=>m!==n);if(typeof fbGuardarArea==='function')fbGuardarArea(a);});rMaqTab();rFMaq();}
 
 // OPERARIOS
 function rUsrTab(){
@@ -3170,7 +3191,9 @@ function aUsr(){
   const n=document.getElementById('iusr').value.trim();const a=document.getElementById('susrarea').value;
   if(!n||!a){alert('Completa nombre y área');return;}
   if(DB.usuarios.find(u=>u.nombre===n)){alert('Ya existe');return;}
-  DB.usuarios.push({nombre:n,area:a});document.getElementById('iusr').value='';
+  const usr={nombre:n,area:a};
+  DB.usuarios.push(usr);document.getElementById('iusr').value='';
+  if(typeof fbGuardarUsuario==='function') fbGuardarUsuario(usr);
   rUsrTab();
 }
 
@@ -3504,7 +3527,12 @@ function rPapelera(){
     cont.appendChild(div);
   });
 }
-function restaurar(i){const r=papelera.splice(i,1)[0];delete r.eliminadoEn;DB.registros.push(r);updMetrics();rReg();rPlanif();rComp();rPapelera();}
+function restaurar(i){
+  const r=papelera.splice(i,1)[0];delete r.eliminadoEn;
+  DB.registros.push(r);
+  if(typeof fbGuardar==='function') fbGuardar(r);
+  updMetrics();rReg();rPlanif();rComp();rPapelera();
+}
 function vaciar(){if(!confirm('¿Vaciar la papelera permanentemente?'))return;papelera=[];rPapelera();}
 
 // MODALES
@@ -3531,6 +3559,7 @@ function cElimReg(){
   if(pin!==PIN){document.getElementById('rerr').style.display='block';['r1','r2','r3','r4'].forEach(id=>document.getElementById(id).value='');document.getElementById('r1').focus();return;}
   if(pendReg===null)return;
   const [el]=DB.registros.splice(pendReg,1);
+  if(el._fbId && typeof fbEliminarRegistro==='function') fbEliminarRegistro(el._fbId);
   papelera.unshift({...el,eliminadoEn:new Date().toLocaleString('es-CL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})});
   cModal('modal-reg');updMetrics();rReg();rPlanif();rComp();rPapelera();
 }
