@@ -1017,22 +1017,8 @@ const DB = {
     {nombre:'Jose Rodriguez',area:'carpinteria'},
     {nombre:'Joel Casillas', area:'carpinteria'},
   ],
-  ops: [
-    {area:'carpinteria',op:'OP-001',sku:'MES-001',modelo:'1042',color:'Roble',grosor:'19mm',cantidad:5,fecha:'13/05/2026',
-     materiales:[{nombre:'Tablero MDF Roble 18mm',skuMat:'MAT-101',planificado:10},{nombre:'Patas torneadas',skuMat:'MAT-205',planificado:20}]},
-    {area:'carpinteria',op:'OP-002',sku:'MES-001',modelo:'1042',color:'Blanco',grosor:'19mm',cantidad:3,fecha:'13/05/2026',
-     materiales:[{nombre:'Tablero Blanco 18mm',skuMat:'MAT-102',planificado:6},{nombre:'Tablero Negro 18mm',skuMat:'MAT-103',planificado:3}]},
-    {area:'carpinteria',op:'OP-003',sku:'SIL-002',modelo:'2034',color:'Nogal',grosor:'28mm',cantidad:8,fecha:'14/05/2026',
-     materiales:[{nombre:'Madera pino 2x4',skuMat:'MAT-110',planificado:24}]},
-    {area:'laser',op:'OP-004',sku:'DEC-001',modelo:'5010',color:'Negro',grosor:'5.5mm',cantidad:20,fecha:'13/05/2026',
-     materiales:[{nombre:'Acrílico Negro 3mm',skuMat:'ACR-101',planificado:4}]},
-  ],
-  registros: [
-    {area:'carpinteria',op:'OP-001',modelo:'1042',color:'Roble',grosor:'19mm',sku:'MES-001',
-     operario:'Raquel Perez',maquina:'Gabbiani',tipo:'normal',motivo:'',sinAsignar:false,
-     materiales:[{nombre:'Tablero MDF Roble 18mm',skuMat:'MAT-101',hojas:1.75,sobrante:0,reutilizado:0,planificado:10}],
-     fecha: new Date().toLocaleDateString('es-CL')}
-  ],
+  ops: [],
+  registros: [],
 };
 let papelera = [], historial = [], excelAreaId = null;
 
