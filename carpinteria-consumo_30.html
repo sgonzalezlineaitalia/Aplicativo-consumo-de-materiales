@@ -111,8 +111,10 @@ window.fbGuardarArea = async function(area) {
 
 // ─── Guardar usuario en Firestore ───
 window.fbGuardarUsuario = async function(usr) {
-  try { await addDoc(collection(db, "usuarios"), usr); }
-  catch(e) { console.error("Error guardando usuario:", e); }
+  try {
+    const id = usr.nombre.replace(/\s+/g,'_').toLowerCase();
+    await setDoc(doc(db, "usuarios", id), usr);
+  } catch(e) { console.error("Error guardando usuario:", e); }
 };
 
 // ─── Cargar sobrantes desde Firestore ───
@@ -178,13 +180,13 @@ window.fbInit = async function() {
   const indicator = document.getElementById('fb-status');
   if(indicator) { indicator.textContent = '☁ Conectando...'; indicator.style.color = 'var(--amber-t)'; }
   try {
-    const [regs, ops, sobrantes] = await Promise.all([
-      fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes()
+    const [regs, ops, sobrantes, spiezas] = await Promise.all([
+      fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes(), fbCargarStockPiezas()
     ]);
     if(regs.length > 0) DB.registros = regs;
     if(ops.length > 0) DB.ops = ops;
-    if(spiezas && spiezas.length > 0) DB.stockPiezas = spiezas;
     if(sobrantes.length > 0) DB.sobrantes = sobrantes;
+    if(spiezas && spiezas.length > 0) DB.stockPiezas = spiezas;
     await fbCargarConfig();
     if(indicator) { indicator.textContent = '☁ En línea'; indicator.style.color = 'var(--green-t)'; }
 
@@ -3730,8 +3732,11 @@ function aUsr(){
   if(DB.usuarios.find(u=>u.nombre===n)){alert('Ya existe');return;}
   const usr={nombre:n,area:a};
   DB.usuarios.push(usr);document.getElementById('iusr').value='';
-  if(typeof fbGuardarUsuario==='function') fbGuardarUsuario(usr);
+  if(typeof fbGuardarUsuario==='function'){
+    DB.usuarios.forEach(u=>fbGuardarUsuario(u).catch(console.error));
+  }
   rUsrTab();
+  if(typeof rUsers==='function') rUsers();
 }
 function dUsrByIdx(idx){
   const lista=supArea?DB.usuarios.filter(u=>u.area===supArea.id):DB.usuarios;
