@@ -183,6 +183,7 @@ window.fbInit = async function() {
     ]);
     if(regs.length > 0) DB.registros = regs;
     if(ops.length > 0) DB.ops = ops;
+    if(spiezas && spiezas.length > 0) DB.stockPiezas = spiezas;
     if(sobrantes.length > 0) DB.sobrantes = sobrantes;
     await fbCargarConfig();
     if(indicator) { indicator.textContent = '☁ En línea'; indicator.style.color = 'var(--green-t)'; }
@@ -209,6 +210,14 @@ window.fbInit = async function() {
       DB.sobrantes = snap.docs.map(d => d.data());
       if(typeof rAlmacen === 'function') rAlmacen();
       if(typeof updAlmacenBadge === 'function') updAlmacenBadge();
+    });
+    onSnapshot(collection(db, "config"), (snap) => {
+      snap.docs.forEach(d => {
+        if(d.id === 'stockPiezas' && d.data().piezas) {
+          DB.stockPiezas = d.data().piezas;
+          if(typeof rStockTab === 'function') rStockTab();
+        }
+      });
     });
     onSnapshot(collection(db, "papelera"), (snap) => {
       if(window.fbPaused) return;
@@ -272,6 +281,21 @@ window.fbEliminarUsuario = async function(nombre) {
     const fbId = nombre.replace(/\s+/g,'_');
     await deleteDoc(doc(db, "usuarios", fbId));
   } catch(e) { console.error("Error eliminando usuario:", e); }
+};
+
+
+// ─── Stock de piezas ───
+window.fbGuardarStockPiezas = async function(piezas) {
+  try {
+    await setDoc(doc(db, "config", "stockPiezas"), { piezas });
+  } catch(e) { console.error("Error guardando stock piezas:", e); }
+};
+window.fbCargarStockPiezas = async function() {
+  try {
+    const d = await getDocs(collection(db, "config"));
+    const sp = d.docs.find(x=>x.id==='stockPiezas');
+    return sp ? sp.data().piezas : null;
+  } catch(e) { return null; }
 };
 
 // Esperar a que el DOM esté listo
@@ -746,6 +770,7 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-excel',this)"><i class="ti ti-file-spreadsheet"></i> Cargar Excel</div>
         <div class="ni" onclick="showT('t-maq',this)"><i class="ti ti-tool"></i> Máquinas</div>
         <div class="ni" onclick="showT('t-usr',this)"><i class="ti ti-users"></i> Operarios</div>
+        <div class="ni" onclick="showT('t-stock',this)"><i class="ti ti-puzzle"></i> Piezas stock</div>
         <div class="ni" onclick="showT('t-almacen',this)"><i class="ti ti-stack-2"></i> Almacén<span id="almacen-badge" style="display:none;margin-left:auto;background:var(--wood-bg);color:var(--wood-t);border:0.5px solid var(--wood);font-size:10px;font-family:'DM Mono',monospace;padding:1px 6px;border-radius:4px;"></span></div>
         <div class="ni" onclick="showT('t-pap',this)"><i class="ti ti-trash"></i> Papelera</div>
         <div style="margin-top:auto;padding:0 1rem;"><button class="btn btn-ghost btn-full btn-sm" onclick="logout()"><i class="ti ti-logout"></i> Salir</button></div>
@@ -951,6 +976,20 @@ tr:hover td{background:var(--bg3);}
           </div>
         </div>
 
+
+        <div class="stab" id="t-stock">
+          <p class="ptitle">Piezas de stock</p>
+          <p class="psub">Botones rápidos para piezas de aprovechamiento</p>
+          <div class="card">
+            <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Estas piezas aparecen como botones rápidos en el canvas del operario, con su porcentaje predefinido.</p>
+            <div id="stock-lista" style="margin-bottom:1rem;"></div>
+            <div style="display:grid;grid-template-columns:1fr 80px auto;gap:8px;align-items:end;">
+              <div><label class="lbl">Nombre de la pieza</label><input type="text" id="sp-nombre" placeholder="Ej: Tapa lateral"></div>
+              <div><label class="lbl">% de hoja</label><input type="number" id="sp-pct" placeholder="10" min="1" max="99" style="text-align:center;"></div>
+              <button class="btn btn-amber" onclick="addStockPieza()" style="align-self:end;"><i class="ti ti-plus"></i> Agregar</button>
+            </div>
+          </div>
+        </div>
         <div class="stab" id="t-almacen">
           <div class="fb" style="margin-bottom:1.5rem;flex-wrap:wrap;gap:10px;">
             <div><p class="ptitle">Almacén de sobrantes</p><p class="psub">Pedazos guardados disponibles para reutilizar</p></div>
@@ -1063,6 +1102,7 @@ const MLC = [
   {f:'rgba(6,182,212,.18)', s:'#0E7490',t:'#0E7490'},
 ];
 const MLSOB = {f:'rgba(100,116,139,.15)',s:'#475569',t:'#475569'};
+const MLSTK = {f:'rgba(22,163,74,.22)',s:'#15803D',t:'#15803D'}; // Stock de piezas
 
 // ═══════════ DB ═══════════
 const DB = {
@@ -1085,6 +1125,12 @@ let cUser=null, cArea=null, cMaq=null, cOP=null, cTipo='normal';
 let cMatIdx=null, cCons={}, cLams={}, cLCnt=0;
 let selMode=false, selSet=new Set(), pendOps=[];
 let pendReg=null, supArea=null, osg='', osItem=null, cLastStep='s1', osfecha='';
+// Piezas de stock predefinidas
+if(!DB.stockPiezas) DB.stockPiezas = [
+  {id:'sp1', nombre:'Tapa lateral',    pct:0.10},
+  {id:'sp2', nombre:'Separador',       pct:0.15},
+  {id:'sp3', nombre:'Refuerzo fondo',  pct:0.08},
+];
 
 // ═══════════ UTILIDADES ═══════════
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
@@ -1294,13 +1340,22 @@ function irS3(){
     '<span class="badge b-op">'+m.skuMat+'</span></div>'+
     '<span style="font-size:12px;font-family:monospace;color:var(--amber-t);" id="ltotal">0.000 hojas</span></div>'+
     '<div class="lblock-b"><div id="lwcont"></div>'+
-    '<div class="addlam" onclick="addLam()"><i class="ti ti-plus"></i> Agregar otra lámina</div></div>';
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
+      '<div class="addlam" style="flex:1;min-width:140px;" onclick="addLam()"><i class="ti ti-plus"></i> Agregar lámina</div>'+
+      '<div style="display:flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:4px 10px;">'+
+        '<span style="font-size:12px;color:var(--text2);">Repetir</span>'+
+        '<input type="number" id="lam-cantidad" value="1" min="1" max="50" style="width:52px;text-align:center;padding:4px 6px;font-size:13px;border:0.5px solid var(--border);border-radius:6px;">'+
+        '<span style="font-size:12px;color:var(--text2);">veces</span>'+
+        '<button onclick="addLamsMultiple()" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--amber);border-radius:6px;cursor:pointer;background:var(--amber-bg);color:var(--amber-t);"><i class="ti ti-copy" style="font-size:12px;vertical-align:-1px;"></i> Agregar</button>'+
+      '</div>'+
+    '</div></div>';
   cont.appendChild(blk);
   addLam();
   showStep('s3');
 }
 function getLamCol(lid,opKey){
   if(opKey==='sobrante')return MLSOB;
+  if(opKey && opKey.startsWith('stock:'))return MLSTK;
   if(!cLams[lid])return MLC[0];
   if(!cLams[lid].cm)cLams[lid].cm={};
   if(!cLams[lid].cm[opKey]){const idx=Object.keys(cLams[lid].cm).length; cLams[lid].cm[opKey]=MLC[idx%MLC.length];}
@@ -1348,11 +1403,19 @@ function addLam(){
       '<input type="text" id="ci'+lid+'" placeholder="OP, modelo..." style="padding:8px 10px 8px 32px;font-size:13px;" oninput="fComp('+lid+')" autocomplete="off"></div>'+
       '<div class="cres" id="cr'+lid+'"></div>'+
       '<div id="cf'+lid+'" style="display:none;background:var(--green-bg);border:0.5px solid var(--green);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--green-t);font-family:monospace;margin-bottom:6px;"></div>'+
-      '<button onclick="setSob('+lid+')" style="font-size:11px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;background:var(--bg3);color:var(--text2);"><i class="ti ti-recycle" style="font-size:12px;vertical-align:-1px;"></i> Zona sobrante</button>'+
+      '<div class="fc g1" style="flex-wrap:wrap;">'+
+        '<button onclick="setSob('+lid+')" style="font-size:11px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;background:var(--bg2);color:var(--text2);"><i class="ti ti-recycle" style="font-size:12px;vertical-align:-1px;"></i> Sobrante</button>'+
+        '<div id="stock-btns-'+lid+'" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;"></div>'+
+        '<button onclick="buildStockBtns('+lid+')" id="stock-init-'+lid+'" style="display:none;"></button>'+
+        '<div style="margin-top:4px;font-size:10px;color:var(--text3);font-family:monospace;">Stock de piezas:</div>'+
+        '<div id="stock-quick-'+lid+'" style="display:flex;gap:4px;flex-wrap:wrap;"></div>'+
+        '<button id="btnresto'+lid+'" onclick="usarResto('+lid+')" style="font-size:11px;padding:4px 10px;border:0.5px solid var(--blue);border-radius:6px;cursor:pointer;background:var(--blue-bg);color:var(--blue-t);"><i class="ti ti-arrows-maximize" style="font-size:12px;vertical-align:-1px;"></i> Usar el resto</button>'+
+      '</div>'+
     '</div>'+
     '<div id="lr'+lid+'" style="display:none;margin-top:8px;background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;padding:10px 12px;"></div>';
   cont.appendChild(w);
   drawLam(lid); updLeg(lid);
+  setTimeout(()=>buildStockBtns(lid), 0);
   const cv=document.getElementById('cv'+lid);
   cv.addEventListener('mousedown', e=>lStart(e,lid));
   cv.addEventListener('mousemove', e=>lMove(e,lid));
@@ -1395,12 +1458,26 @@ function flashErr(lid,rx,ry,rw,rh){
   ctx.setLineDash([4,3]);ctx.beginPath();ctx.roundRect(rx,ry,rw,rh,4);ctx.fill();ctx.stroke();ctx.setLineDash([]);
   setTimeout(()=>drawLam(lid),600);
 }
+
+function primerXLibre(lid, w){
+  // Encuentra la primera posición X donde cabe un rectángulo de ancho w y alto MLH
+  const lam = GL(lid); if(!lam) return 0;
+  // Obtener todos los bordes derechos de las zonas existentes, ordenados
+  const bordes = [0, ...lam.zonas.map(z=>z.x+z.w)].sort((a,b)=>a-b);
+  for(const x of bordes){
+    if(x + w > MLW + 0.5) continue; // no cabe
+    if(!zOver(lid, x, 0, w, MLH)) return x;
+  }
+  return -1; // no hay espacio
+}
+
 function setFrac(lid,val){
   const lam=GL(lid);if(!lam||!lam.opActual)return;
-  const w=MLW*val,h=MLH;
-  if(zOver(lid,0,0,w,h)){alert('Zona superpuesta. Limpiá primero.');return;}
-  lam.zonas.push({opKey:lam.opActual.opKey,label:lam.opActual.label,tipo:lam.opActual.tipo,x:0,y:0,w,h});
-  drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);
+  const w=MLW*val, h=MLH;
+  const x=primerXLibre(lid,w);
+  if(x<0){alert('No hay espacio suficiente en la lámina.');return;}
+  lam.zonas.push({opKey:lam.opActual.opKey,label:lam.opActual.label,tipo:lam.opActual.tipo||'op',x,y:0,w,h});
+  drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);
 }
 function setTLam(lid,tipo){
   const lam=GL(lid);if(!lam)return; lam.tipoLam=tipo;
@@ -1452,15 +1529,160 @@ function selCOP(lid,opId){
   const op=DB.ops.find(o=>o.op===opId);if(!op)return;
   const lam=GL(lid);if(!lam)return;
   lam.opActual={opKey:op.op,label:'Mod.'+op.modelo+' '+op.color,tipo:'op'};
-  const cf=document.getElementById('cf'+lid);if(cf){cf.textContent='✓ '+op.op+' · Mod.'+op.modelo+' '+op.color+' — dibujá su zona';cf.style.display='block';}
-  const inst=document.getElementById('inst'+lid);if(inst)inst.innerHTML='Dibujando <strong style="color:var(--amber-t);">'+op.op+'</strong>';
+  const cf=document.getElementById('cf'+lid);
+  if(cf){cf.textContent='✓ '+op.op+' · Mod.'+op.modelo+' '+op.color+' — dibujá su zona';cf.style.display='block';}
+  const inst=document.getElementById('inst'+lid);
+  if(inst)inst.innerHTML='Dibujando <strong style="color:var(--amber-t);">'+op.op+'</strong>';
+  // Mostrar botón "Usar el resto" si hay espacio libre
+  const btnResto=document.getElementById('btnresto'+lid);
+  if(btnResto) updBtnResto(lid);
   fComp(lid);updLeg(lid);
 }
+
+function addLamsMultiple(){
+  const inp = document.getElementById('lam-cantidad');
+  const n = Math.max(1, Math.min(50, parseInt(inp?.value)||1));
+
+  if(n === 1){
+    addLam();
+    return;
+  }
+
+  // Si hay láminas existentes, preguntar si copiar la última o crear vacías
+  const lidsPrev = Object.keys(cLams).map(Number).filter(x=>!isNaN(x)).sort((a,b)=>a-b);
+  const ultimaLid = lidsPrev[lidsPrev.length-1];
+
+  if(ultimaLid && cLams[ultimaLid] && cLams[ultimaLid].zonas.length > 0){
+    // Preguntar si copiar
+    const copiar = confirm(n+' láminas nuevas\n\n¿Copiar el diseño de la lámina '+ultimaLid+' en todas?\n\nAceptar = copiar · Cancelar = láminas vacías');
+    for(let i=0;i<n;i++){
+      addLam();
+      if(copiar){
+        const nuevoLid = cLCnt;
+        const lamPrev = cLams[ultimaLid];
+        if(lamPrev){
+          cLams[nuevoLid].zonas = lamPrev.zonas.map(z=>({...z}));
+          cLams[nuevoLid].tipoLam = lamPrev.tipoLam;
+          if(lamPrev.tipoLam === 'reut'){
+            const lw = document.getElementById('lw'+nuevoLid);
+            if(lw) lw.className = 'lw reut';
+          }
+          drawLam(nuevoLid);
+          updLRes(nuevoLid);
+          updLeg(nuevoLid);
+          updFree(nuevoLid);
+          updBtnResto(nuevoLid);
+        }
+      }
+    }
+    updTotal();
+  } else {
+    // No hay láminas previas con diseño, crear vacías
+    for(let i=0;i<n;i++) addLam();
+  }
+
+  // Resetear contador
+  if(inp) inp.value = '1';
+
+  // Scroll al final
+  const cont = document.getElementById('lwcont');
+  if(cont) cont.lastElementChild?.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function setStock(lid, spId, nombre, pct){
+  const lam=GL(lid);if(!lam)return;
+  lam.opActual={opKey:'stock:'+spId, label:nombre, tipo:'stock', pct};
+  const inst=document.getElementById('inst'+lid);
+  if(inst)inst.innerHTML='Dibujando <strong style="color:var(--green-t);">'+nombre+'</strong> (stock)';
+  updLeg(lid);
+  // Si tiene % definido, aplicar automáticamente con setFracStock
+  if(pct) setFracStock(lid, pct);
+}
+
+function setFracStock(lid, pct){
+  const lam=GL(lid);if(!lam||!lam.opActual)return;
+  const w=MLW*pct, h=MLH;
+  // Buscar primer espacio libre usando primerXLibre
+  const x = primerXLibre(lid, w);
+  if(x < 0){
+    alert('No hay espacio suficiente para esta pieza de stock en la lámina.');
+    return;
+  }
+  lam.zonas.push({opKey:lam.opActual.opKey, label:lam.opActual.label, tipo:'stock', x, y:0, w, h});
+  drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);
+}
+
 function setSob(lid){
   const lam=GL(lid);if(!lam)return;
   lam.opActual={opKey:'sobrante',label:'Sobrante',tipo:'sobrante'};
   const inst=document.getElementById('inst'+lid);if(inst)inst.innerHTML='Dibujá la zona sobrante';
   updLeg(lid);
+}
+
+function getLibre(lid){
+  // Retorna la fracción libre (0-1) de la lámina
+  const lam=GL(lid);if(!lam)return 0;
+  const usado=lam.zonas.reduce((s,z)=>s+(z.w*z.h)/MLA,0);
+  return Math.max(0,1-usado);
+}
+
+function usarResto(lid){
+  const lam=GL(lid);if(!lam||!lam.opActual)return;
+  const libre=getLibre(lid);
+  if(libre<0.01){alert('No hay espacio libre en la lámina');return;}
+
+  // Calcular el bounding box del espacio ocupado para determinar dónde poner el resto
+  // Estrategia: encontrar la región rectangular más grande disponible
+  // Simplificado: si hay zonas, ocupar el espacio restante a la derecha o abajo
+  const zonas=lam.zonas;
+  let resto=null;
+
+  if(!zonas.length){
+    // Lámina vacía — usar todo
+    resto={x:0,y:0,w:MLW,h:MLH};
+  } else {
+    // Intentar llenar a la derecha del punto más a la derecha usado
+    const maxX=Math.max(...zonas.map(z=>z.x+z.w));
+    const maxY=Math.max(...zonas.map(z=>z.y+z.h));
+    const minX=Math.min(...zonas.map(z=>z.x));
+
+    // Opción 1: franja derecha
+    if(MLW-maxX > 20){
+      resto={x:maxX,y:0,w:MLW-maxX,h:MLH};
+    }
+    // Opción 2: franja inferior
+    else if(MLH-maxY > 10){
+      resto={x:0,y:maxY,w:MLW,h:MLH-maxY};
+    }
+    // Opción 3: franja izquierda (si hay espacio antes de minX)
+    else if(minX > 20){
+      resto={x:0,y:0,w:minX,h:MLH};
+    }
+    // Opción 4: llenar todo lo que queda (puede superponerse — usar con cuidado)
+    else {
+      // Recorrer columnas de 1px para encontrar espacio
+      // Simplificado: franja desde 0 hasta el inicio de la primera zona
+      const sorted=zonas.slice().sort((a,b)=>a.x-b.x);
+      if(sorted[0].x>20) resto={x:0,y:0,w:sorted[0].x,h:MLH};
+    }
+  }
+
+  if(!resto){alert('No se pudo calcular el espacio libre. Dibujá la zona manualmente.');return;}
+
+  // Verificar superposición
+  if(zOver(lid,resto.x,resto.y,resto.w,resto.h)){
+    // Intentar ajustar
+    alert('El espacio libre está fragmentado. Dibujá la zona manualmente.');
+    return;
+  }
+
+  lam.zonas.push({opKey:lam.opActual.opKey,label:lam.opActual.label,tipo:lam.opActual.tipo,
+    x:resto.x,y:resto.y,w:resto.w,h:resto.h});
+  drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);
+
+  // Actualizar label del botón
+  const btn=document.getElementById('btnresto'+lid);
+  if(btn) updBtnResto(lid);
 }
 function selLeg(lid,opKey){
   const lam=GL(lid);if(!lam)return;
@@ -1479,10 +1701,10 @@ function repLam(lid){
   const prev=GL(lid-1);if(!prev||!prev.zonas.length){alert('La lámina anterior no tiene zonas');return;}
   const lam=GL(lid);if(!lam)return;
   lam.zonas=prev.zonas.map(z=>({...z}));
-  drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);
+  drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);
 }
-function deshZ(lid){const lam=GL(lid);if(!lam)return;lam.zonas.pop();drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);}
-function clrLam(lid){const lam=GL(lid);if(!lam)return;lam.zonas=[];drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);}
+function deshZ(lid){const lam=GL(lid);if(!lam)return;lam.zonas.pop();drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);}
+function clrLam(lid){const lam=GL(lid);if(!lam)return;lam.zonas=[];drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);}
 function drawPrev(lid){
   const lam=GL(lid);if(!lam||!lam.opActual)return;
   const cv=document.getElementById('cv'+lid);if(!cv)return;
@@ -1568,7 +1790,8 @@ function updTotal(){
     });
   });
   const sob=Object.keys(cLams).reduce((s,lid)=>s+(cLams[lid]?cLams[lid].zonas.filter(z=>z.tipo==='sobrante').reduce((s2,z)=>s2+(z.w*z.h)/MLA,0):0),0);
-  cCons={hojas:opT[cOP.op]||0,sobrante:sob,reutilizado:opR[cOP.op]||0,opT,opR};
+  const stk=Object.keys(cLams).reduce((s,lid)=>s+(cLams[lid]?cLams[lid].zonas.filter(z=>z.tipo==='stock').reduce((s2,z)=>s2+(z.w*z.h)/MLA,0):0),0);
+  cCons={hojas:opT[cOP.op]||0,sobrante:sob,stock:stk,reutilizado:opR[cOP.op]||0,opT,opR};
   const el=document.getElementById('ltotal');if(!el)return;
   const r=cCons.reutilizado>0?' + '+(cCons.reutilizado.toFixed(3))+' reut.':'';
   el.textContent=cCons.hojas.toFixed(3)+' hojas nuevas'+r;
@@ -2854,6 +3077,98 @@ function generarResumenExcel(rows){
 // ═══════════ CALENDARIO ═══════════
 if(!DB.sobrantes) DB.sobrantes = [];
 
+
+
+function updBtnResto(lid){
+  const btn = document.getElementById('btnresto'+lid); if(!btn) return;
+  const libre = getLibre(lid);
+  if(libre > 0.01){
+    btn.innerHTML = '<i class="ti ti-arrows-maximize" style="font-size:12px;vertical-align:-1px;margin-right:3px;"></i> Usar el resto ('+Math.round(libre*100)+'%)';
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'all';
+  } else {
+    btn.innerHTML = '<i class="ti ti-arrows-maximize" style="font-size:12px;vertical-align:-1px;margin-right:3px;"></i> Usar el resto';
+    btn.style.opacity = '0.4';
+    btn.style.pointerEvents = 'none';
+  }
+}
+
+// ═══════════ STOCK DE PIEZAS ═══════════
+function buildStockBtns(lid){
+  const cont = document.getElementById('stock-quick-'+lid);
+  if(!cont) return;
+  cont.innerHTML = '';
+  (DB.stockPiezas||[]).forEach(sp=>{
+    const btn = document.createElement('button');
+    btn.style.cssText = 'font-size:11px;padding:4px 10px;border:0.5px solid var(--green);border-radius:6px;cursor:pointer;background:var(--green-bg);color:var(--green-t);display:inline-flex;align-items:center;gap:4px;';
+    btn.innerHTML = '<i class="ti ti-stack-2" style="font-size:11px;"></i> '+sp.nombre+' ('+Math.round(sp.pct*100)+'%)';
+    btn.onclick = ()=>setStock(lid, sp.id, sp.nombre, sp.pct);
+    cont.appendChild(btn);
+  });
+  // Botón "Personalizado"
+  const custom = document.createElement('button');
+  custom.style.cssText = 'font-size:11px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;background:var(--bg2);color:var(--text2);';
+  custom.innerHTML = '<i class="ti ti-pencil" style="font-size:11px;vertical-align:-1px;"></i> Personalizado';
+  custom.onclick = ()=>setStockCustom(lid);
+  cont.appendChild(custom);
+}
+
+function setStockCustom(lid){
+  const nombre = prompt('Nombre de la pieza de stock:','Pieza stock');
+  if(!nombre) return;
+  const pctStr = prompt('¿Qué % de la hoja ocupa? (ej: 10 para 10%):','10');
+  if(!pctStr) return;
+  const pct = parseFloat(pctStr)/100;
+  if(isNaN(pct)||pct<=0||pct>1){ alert('Porcentaje inválido'); return; }
+  setStock(lid, 'custom_'+Date.now(), nombre, pct);
+}
+
+// Agregar sección de stock al abrir el panel de compartir
+const _origTogComp = typeof togComp !== 'undefined' ? togComp : null;
+
+
+function rStockTab(){
+  const cont = document.getElementById('stock-lista'); if(!cont) return;
+  if(!(DB.stockPiezas||[]).length){
+    cont.innerHTML='<div style="text-align:center;padding:1.5rem;color:var(--text3);font-size:13px;">No hay piezas configuradas</div>';
+    return;
+  }
+  cont.innerHTML='';
+  DB.stockPiezas.forEach((sp,i)=>{
+    const row = document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg3);border:0.5px solid var(--border);border-radius:8px;margin-bottom:6px;gap:10px;';
+    row.innerHTML=
+      '<div style="display:flex;align-items:center;gap:10px;">'+
+        '<div style="width:32px;height:32px;border-radius:6px;background:var(--green-bg);border:0.5px solid var(--green);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;font-family:monospace;color:var(--green-t);">'+Math.round(sp.pct*100)+'%</div>'+
+        '<div><div style="font-size:14px;font-weight:500;">'+sp.nombre+'</div><div style="font-size:11px;color:var(--text2);font-family:monospace;">'+Math.round(sp.pct*100)+'% de la hoja · ~'+(sp.pct*MLW).toFixed(0)+' px ancho</div></div>'+
+      '</div>'+
+      '<button class="btn btn-red btn-sm" onclick="delStockPieza('+i+')"><i class="ti ti-trash"></i></button>';
+    cont.appendChild(row);
+  });
+}
+
+function addStockPieza(){
+  const nombre = document.getElementById('sp-nombre').value.trim();
+  const pctVal = parseFloat(document.getElementById('sp-pct').value);
+  if(!nombre){ alert('Ingresa el nombre de la pieza'); return; }
+  if(isNaN(pctVal)||pctVal<=0||pctVal>=100){ alert('Ingresa un porcentaje válido (1-99)'); return; }
+  const pct = pctVal/100;
+  DB.stockPiezas = DB.stockPiezas||[];
+  DB.stockPiezas.push({id:'sp'+Date.now(), nombre, pct});
+  document.getElementById('sp-nombre').value='';
+  document.getElementById('sp-pct').value='';
+  rStockTab();
+  // Guardar en Firebase si está disponible
+  if(typeof fbGuardarStockPiezas==='function') fbGuardarStockPiezas(DB.stockPiezas).catch(console.error);
+}
+
+function delStockPieza(idx){
+  if(!confirm('¿Eliminar esta pieza de stock?')) return;
+  DB.stockPiezas.splice(idx,1);
+  rStockTab();
+  if(typeof fbGuardarStockPiezas==='function') fbGuardarStockPiezas(DB.stockPiezas).catch(console.error);
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -2901,6 +3216,7 @@ function showT(id,el){
   if(id==='t-sa')rSA();
   if(id==='t-pap')rPapelera();
   if(id==='t-almacen')rAlmacen();
+  if(id==='t-stock')rStockTab();
   if(id==='t-maq')rMaqTab();
   if(id==='t-usr')rUsrTab();
   if(id==='t-excel')rExBtns();
