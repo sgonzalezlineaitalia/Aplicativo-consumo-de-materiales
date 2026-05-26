@@ -111,10 +111,8 @@ window.fbGuardarArea = async function(area) {
 
 // ─── Guardar usuario en Firestore ───
 window.fbGuardarUsuario = async function(usr) {
-  try {
-    const id = usr.nombre.replace(/\s+/g,'_').toLowerCase();
-    await setDoc(doc(db, 'usuarios', id), usr);
-  } catch(e) { console.error('Error guardando usuario:', e); }
+  try { await addDoc(collection(db, "usuarios"), usr); }
+  catch(e) { console.error("Error guardando usuario:", e); }
 };
 
 // ─── Cargar sobrantes desde Firestore ───
@@ -141,13 +139,11 @@ window.fbCargarConfig = async function() {
     }
     if(usrsSnap.docs.length > 0){
       const fbUsuarios = usrsSnap.docs.map(d => d.data());
+      // Combinar: agregar los de Firebase que no estén ya en DB.usuarios (por nombre)
       fbUsuarios.forEach(u => {
-        const idx = DB.usuarios.findIndex(x => x.nombre === u.nombre);
-        if(idx >= 0) DB.usuarios[idx] = u; else DB.usuarios.push(u);
+        if(!DB.usuarios.find(x => x.nombre === u.nombre)) DB.usuarios.push(u);
       });
     }
-    if(typeof rAreas === 'function') rAreas();
-    if(typeof rUsers === 'function') rUsers();
   } catch(e) { console.error("Error cargando config:", e); }
 };
 
@@ -182,13 +178,13 @@ window.fbInit = async function() {
   const indicator = document.getElementById('fb-status');
   if(indicator) { indicator.textContent = '☁ Conectando...'; indicator.style.color = 'var(--amber-t)'; }
   try {
-    const [regs, ops, sobrantes, spiezas] = await Promise.all([
-      fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes(), fbCargarStockPiezas()
+    const [regs, ops, sobrantes] = await Promise.all([
+      fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes()
     ]);
     if(regs.length > 0) DB.registros = regs;
     if(ops.length > 0) DB.ops = ops;
-    if(sobrantes.length > 0) DB.sobrantes = sobrantes;
     if(spiezas && spiezas.length > 0) DB.stockPiezas = spiezas;
+    if(sobrantes.length > 0) DB.sobrantes = sobrantes;
     await fbCargarConfig();
     if(indicator) { indicator.textContent = '☁ En línea'; indicator.style.color = 'var(--green-t)'; }
 
@@ -792,7 +788,7 @@ tr:hover td{background:var(--bg3);}
             <select id="fest" onchange="rReg()"><option value="">Todos</option><option value="ok">Registrados</option><option value="pend">Pendientes</option><option value="rec">Re-cortes</option></select>
             <select id="fmaq" onchange="rReg()"><option value="">Todas las máquinas</option></select>
           </div>
-          <div class="dtw"><table><thead><tr><th>OP</th><th>Modelo·Color·Grosor</th><th>Material</th><th>Hojas</th><th>Reut.</th><th>Sob.</th><th>Máquina</th><th>Tipo</th><th>Estado</th><th>Justificación</th><th></th></tr></thead><tbody id="treg"></tbody></table></div>
+          <div class="dtw"><table><thead><tr><th>OP</th><th>Modelo·Color·Grosor</th><th>Material</th><th>Hojas</th><th>Reut.</th><th>Sob.</th><th>Máquina</th><th>Tipo</th><th>Estado</th><th>Justificación</th><th>Mapa</th><th></th></tr></thead><tbody id="treg"></tbody></table></div>
         </div>
         <div class="stab" id="t-planif">
           <p class="ptitle">Planificación</p><p class="psub">OPs cargadas con avance en tiempo real</p>
@@ -1062,6 +1058,19 @@ tr:hover td{background:var(--bg3);}
       <button class="btn btn-ghost btn-full" onclick="guardarSinJustif()">Omitir</button>
       <button class="btn btn-amber btn-full" onclick="guardarConJustif()"><i class="ti ti-device-floppy"></i> Guardar con razón</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-ov" id="modal-laminas" style="align-items:flex-start;padding-top:2rem;">
+  <div class="modal-box" style="max-width:700px;max-height:85vh;overflow-y:auto;">
+    <div class="fb" style="margin-bottom:1rem;">
+      <div>
+        <p style="font-size:16px;font-weight:600;">Mapa de láminas</p>
+        <p style="font-size:12px;color:var(--text2);" id="mlam-header">—</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="cModal('modal-laminas')"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="mlam-cont"></div>
   </div>
 </div>
 
@@ -1872,9 +1881,24 @@ function _ejecutarGuardar(justif){
   const motivo=cTipo==='recorte'?(document.getElementById('rmt').value==='Otro'?document.getElementById('rotrotxt').value:document.getElementById('rmt').value):'';
   const fecha=new Date().toLocaleDateString('es-CL');
   const m=cOP.materiales[cMatIdx];
+  // Serializar láminas para guardar el mapa visual
+  const laminasGuardadas = Object.keys(cLams).map(lid=>{
+    const lam = cLams[lid]; if(!lam) return null;
+    return {
+      lid: parseInt(lid),
+      tipoLam: lam.tipoLam||'nueva',
+      zonas: lam.zonas.map(z=>({
+        opKey:z.opKey, label:z.label||'', tipo:z.tipo||'op',
+        x:Math.round(z.x), y:Math.round(z.y),
+        w:Math.round(z.w), h:Math.round(z.h)
+      }))
+    };
+  }).filter(Boolean);
+
   const reg={area:cArea.id,op:cOP.op,modelo:cOP.modelo,color:cOP.color,grosor:cOP.grosor,sku:cOP.sku,
     operario:cUser,maquina:cMaq,tipo:cTipo,motivo,sinAsignar:cOP.sinAsignar||false,obs:cOP.obs||'',
     justifDif:justif||'',
+    laminas: laminasGuardadas,
     materiales:[{nombre:m.nombre,skuMat:m.skuMat,hojas:cCons.hojas,sobrante:cCons.sobrante,reutilizado:cCons.reutilizado||0,planificado:m.planificado}],fecha};
   DB.registros.push(reg);
   // Guardar en Firebase
@@ -3173,6 +3197,141 @@ function delStockPieza(idx){
   if(typeof fbGuardarStockPiezas==='function') fbGuardarStockPiezas(DB.stockPiezas).catch(console.error);
 }
 
+
+// ═══════════ VER MAPA DE LÁMINAS ═══════════
+const MLC_MAP = [
+  {f:'rgba(37,99,235,.18)',  s:'#1D4ED8', t:'#1D4ED8'},
+  {f:'rgba(217,119,6,.18)',  s:'#B45309', t:'#B45309'},
+  {f:'rgba(220,38,38,.18)',  s:'#B91C1C', t:'#B91C1C'},
+  {f:'rgba(124,58,237,.18)', s:'#6D28D9', t:'#6D28D9'},
+  {f:'rgba(6,182,212,.18)',  s:'#0E7490', t:'#0E7490'},
+  {f:'rgba(236,72,153,.18)', s:'#9D174D', t:'#9D174D'},
+];
+const MLSOB_MAP = {f:'rgba(100,116,139,.15)', s:'#475569', t:'#475569'};
+const MLSTK_MAP = {f:'rgba(22,163,74,.22)',   s:'#15803D', t:'#15803D'};
+
+function getColMap(opKey, opIndex){
+  if(!opKey) return MLC_MAP[0];
+  if(opKey === 'sobrante') return MLSOB_MAP;
+  if(opKey.startsWith('stock:')) return MLSTK_MAP;
+  return MLC_MAP[opIndex % MLC_MAP.length];
+}
+
+function verLaminas(ri){
+  const r = DB.registros[ri]; if(!r) return;
+  if(!r.laminas || !r.laminas.length){
+    alert('Este registro no tiene mapa de láminas guardado.\n(Solo los registros nuevos guardan el mapa.)');
+    return;
+  }
+
+  const hdr = document.getElementById('mlam-header');
+  if(hdr) hdr.textContent = r.op + ' · Mod.' + r.modelo + ' · ' + r.color + ' · ' + r.grosor + ' · ' + r.fecha;
+
+  const cont = document.getElementById('mlam-cont');
+  if(!cont) return;
+  cont.innerHTML = '';
+
+  const W = 560, H = Math.round(560 * (180/520)); // proporcional al canvas original
+
+  r.laminas.forEach((lam, idx) => {
+    // Título de la lámina
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:12px;font-weight:600;color:var(--text2);font-family:monospace;margin-bottom:6px;margin-top:'+(idx>0?'14px':'0')+'px;display:flex;align-items:center;gap:8px;';
+    title.innerHTML = 'Lámina ' + lam.lid +
+      '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:'+(lam.tipoLam==='reut'?'var(--wood-bg)':'var(--bg3)')+';color:'+(lam.tipoLam==='reut'?'var(--wood-t)':'var(--text2)')+';border:0.5px solid var(--border);">'+(lam.tipoLam==='reut'?'Reutilizada':'Nueva')+'</span>';
+    cont.appendChild(title);
+
+    // Canvas
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    cv.style.cssText = 'display:block;width:100%;border-radius:8px;margin-bottom:6px;';
+    cont.appendChild(cv);
+
+    const ctx = cv.getContext('2d');
+    const MLW_O = 520, MLH_O = 180; // dimensiones originales
+    const sx = W / MLW_O, sy = H / MLH_O;
+
+    // Fondo
+    ctx.fillStyle = lam.tipoLam === 'reut' ? '#FFFBEB' : '#F7F8FA';
+    ctx.beginPath(); ctx.roundRect(0,0,W,H,6); ctx.fill();
+
+    // Líneas de guía
+    ctx.strokeStyle = 'rgba(0,0,0,.06)'; ctx.lineWidth = 1;
+    [.25,.5,.75].forEach(f=>{
+      ctx.beginPath(); ctx.moveTo(W*f,0); ctx.lineTo(W*f,H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,H*f); ctx.lineTo(0,H*f); // skip horizontal for cleaner look
+    });
+
+    // Construir índice de colores por opKey
+    const opKeys = [...new Set((lam.zonas||[]).map(z=>z.opKey))];
+    const colIdx = {};
+    opKeys.forEach((k,i) => { colIdx[k] = i; });
+
+    // Dibujar zonas
+    (lam.zonas||[]).forEach(z => {
+      const col = getColMap(z.opKey, colIdx[z.opKey]||0);
+      const rx = z.x * sx, ry = z.y * sy, rw = z.w * sx, rh = z.h * sy;
+      ctx.fillStyle = col.f;
+      ctx.strokeStyle = col.s;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, 3); ctx.fill(); ctx.stroke();
+      // Label
+      if(rw > 40 && rh > 16){
+        ctx.fillStyle = '#fff';
+        ctx.font = '600 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const lbl = z.tipo==='sobrante' ? 'Sob.' : z.tipo==='stock' ? (z.label||'Stock') : z.opKey;
+        const pct = Math.round((z.w * z.h) / (MLW_O * MLH_O) * 100);
+        ctx.fillText(lbl + ' ' + pct + '%', rx + rw/2, ry + rh/2);
+      }
+    });
+
+    // Borde
+    ctx.strokeStyle = lam.tipoLam==='reut' ? '#D97706' : '#CDD1D9';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(.5,.5,W-1,H-1,6); ctx.stroke();
+
+    // Marcas de % en la parte superior
+    ctx.fillStyle = 'rgba(0,0,0,.2)';
+    ctx.font = '9px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+    ['⅛','¼','⅓','½','⅔','¾','⅞'].forEach((gl,i)=>{
+      ctx.fillText(gl, W*[.125,.25,.333,.5,.667,.75,.875][i], 3);
+    });
+
+    // Resumen de zonas
+    if(lam.zonas && lam.zonas.length){
+      const resDiv = document.createElement('div');
+      resDiv.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;';
+      const byOp = {};
+      lam.zonas.forEach(z=>{
+        if(!byOp[z.opKey]) byOp[z.opKey]={label:z.label||z.opKey, tipo:z.tipo||'op', pct:0};
+        byOp[z.opKey].pct += Math.round((z.w*z.h)/(MLW_O*MLH_O)*100);
+      });
+      Object.entries(byOp).forEach(([opKey, d])=>{
+        const col = getColMap(opKey, colIdx[opKey]||0);
+        const chip = document.createElement('span');
+        chip.style.cssText = 'font-size:10px;font-family:monospace;padding:2px 8px;border-radius:4px;background:'+col.f+';color:'+col.s+';border:0.5px solid '+col.s+';';
+        const lbl = d.tipo==='sobrante'?'Sobrante':d.tipo==='stock'?(d.label||'Stock'):opKey;
+        chip.textContent = lbl + ' · ' + d.pct + '%';
+        resDiv.appendChild(chip);
+      });
+      cont.appendChild(resDiv);
+    }
+  });
+
+  // Stats
+  const statsDiv = document.createElement('div');
+  statsDiv.style.cssText = 'background:var(--bg3);border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:var(--text2);font-family:monospace;';
+  statsDiv.textContent = r.laminas.length + ' lámina' + (r.laminas.length!==1?'s':'') +
+    ' · ' + r.materiales[0].hojas.toFixed(3) + ' hojas nuevas' +
+    (r.materiales[0].reutilizado>0?' · '+r.materiales[0].reutilizado.toFixed(3)+' reutilizadas':'') +
+    (r.materiales[0].sobrante>0?' · '+r.materiales[0].sobrante.toFixed(3)+' sobrante':'');
+  cont.appendChild(statsDiv);
+
+  oModal('modal-laminas');
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -3283,6 +3442,7 @@ function rReg(){
         '<td>'+(r.justifDif
           ?'<div style="display:flex;align-items:flex-start;gap:5px;max-width:180px;"><i class="ti ti-message-circle" style="font-size:13px;color:var(--amber-t);flex-shrink:0;margin-top:1px;"></i><span style="font-size:11px;color:var(--text2);line-height:1.4;">'+r.justifDif+'</span></div>'
           :'<span style="color:var(--text3);font-size:11px;">—</span>')+'</td>'+
+        '<td>'+(r.laminas&&r.laminas.length?'<button class="btn btn-ghost btn-sm" onclick="verLaminas('+ri+')" title="Ver mapa de láminas"><i class="ti ti-layout-board"></i></button>':'')+'</td>'+
         '<td>'+del+'</td></tr>');
     });
   });
@@ -3570,11 +3730,8 @@ function aUsr(){
   if(DB.usuarios.find(u=>u.nombre===n)){alert('Ya existe');return;}
   const usr={nombre:n,area:a};
   DB.usuarios.push(usr);document.getElementById('iusr').value='';
-  if(typeof fbGuardarUsuario==='function'){
-    DB.usuarios.forEach(u=>fbGuardarUsuario(u).catch(console.error));
-  }
+  if(typeof fbGuardarUsuario==='function') fbGuardarUsuario(usr);
   rUsrTab();
-  if(typeof rUsers==='function') rUsers();
 }
 function dUsrByIdx(idx){
   const lista=supArea?DB.usuarios.filter(u=>u.area===supArea.id):DB.usuarios;
