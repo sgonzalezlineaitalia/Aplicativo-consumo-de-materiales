@@ -2706,14 +2706,28 @@ function guardarSobrante(){
   const ubicacion = document.getElementById('sob-ubicacion')?.value.trim() || '';
   if(!alto || !ancho){ alert('Ingresa el alto y ancho aproximado del pedazo'); return; }
 
-  // Auto-identificar material del catálogo
-  const matCatalogo = buscarMelamina(cOP.color, cOP.grosor);
+  // Usar el color/grosor del MATERIAL específico (no el de la OP)
+  // La OP puede tener materiales de distintos colores — tomar el que se cortó
+  const matSelec = (cMatIdx !== null && cOP.materiales) ? cOP.materiales[cMatIdx] : null;
+  let colorReal  = cOP.color;
+  let grosorReal = cOP.grosor;
+  let matCatalogo = null;
+  if(matSelec && matSelec.skuMat){
+    // Buscar por SKU del material — más preciso
+    matCatalogo = CATALOGO_MELAMINAS.find(m => m.sku === matSelec.skuMat);
+    if(matCatalogo){
+      colorReal  = matCatalogo.color;
+      grosorReal = (matCatalogo.grosor||cOP.grosor).toLowerCase().replace(/\s+/g,'');
+    }
+  }
+  if(!matCatalogo) matCatalogo = buscarMelamina(colorReal, grosorReal);
+
   const sob = {
     id: 'SOB-' + Date.now(),
-    color:        cOP.color,
-    grosor:       cOP.grosor,
-    skuMaterial:  matCatalogo ? matCatalogo.sku : '—',
-    nombreMat:    matCatalogo ? matCatalogo.nombre : cOP.color + ' ' + cOP.grosor,
+    color:        colorReal,
+    grosor:       grosorReal,
+    skuMaterial:  matCatalogo ? matCatalogo.sku  : (matSelec?.skuMat || '—'),
+    nombreMat:    matCatalogo ? matCatalogo.nombre : (matSelec?.nombre || colorReal + ' ' + grosorReal),
     pct:          cSobrantePct,
     alto,
     ancho,
