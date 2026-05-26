@@ -141,6 +141,12 @@ window.fbCargarConfig = async function() {
   } catch(e) { console.error("Error cargando config:", e); }
 };
 
+// ─── Pausar/reanudar listeners para evitar conflictos con cambios locales ───
+window.fbPause = function(ms) {
+  window.fbPaused = true;
+  setTimeout(() => { window.fbPaused = false; }, ms || 3000);
+};
+
 // ─── Refrescar UI completa ───
 window.fbRefreshUI = function() {
   if(typeof rAreas === 'function') rAreas();
@@ -176,11 +182,15 @@ window.fbInit = async function() {
     if(indicator) { indicator.textContent = '☁ En línea'; indicator.style.color = 'var(--green-t)'; }
 
     // Escuchar cambios en tiempo real
+    // fbPaused evita que el listener sobreescriba cambios locales inmediatos
+    window.fbPaused = false;
     onSnapshot(collection(db, "registros"), (snap) => {
+      if(window.fbPaused) return;
       DB.registros = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
       fbRefreshUI();
     });
     onSnapshot(collection(db, "ops"), (snap) => {
+      if(window.fbPaused) return;
       if(snap.docs.length > 0) {
         DB.ops = snap.docs.map(d => d.data());
         if(typeof rAreas === 'function') rAreas();
@@ -189,6 +199,7 @@ window.fbInit = async function() {
       }
     });
     onSnapshot(collection(db, "sobrantes"), (snap) => {
+      if(window.fbPaused) return;
       DB.sobrantes = snap.docs.map(d => d.data());
       if(typeof rAlmacen === 'function') rAlmacen();
       if(typeof updAlmacenBadge === 'function') updAlmacenBadge();
@@ -3047,6 +3058,7 @@ function abOPs(opIds){
 function cElimOPs(){
   const pin=['o1','o2','o3','o4'].map(id=>document.getElementById(id).value).join('');
   if(pin!==PIN){document.getElementById('operr').style.display='block';['o1','o2','o3','o4'].forEach(id=>document.getElementById(id).value='');document.getElementById('o1').focus();return;}
+  if(typeof fbPause==='function') fbPause(3000);
   pendOps.forEach(opId=>{
     const i=DB.ops.findIndex(o=>o.op===opId);if(i>=0)DB.ops.splice(i,1);
     if(typeof fbEliminarOP==='function') fbEliminarOP(opId);
@@ -3559,7 +3571,7 @@ function cElimReg(){
   if(pin!==PIN){document.getElementById('rerr').style.display='block';['r1','r2','r3','r4'].forEach(id=>document.getElementById(id).value='');document.getElementById('r1').focus();return;}
   if(pendReg===null)return;
   const [el]=DB.registros.splice(pendReg,1);
-  if(el._fbId && typeof fbEliminarRegistro==='function') fbEliminarRegistro(el._fbId);
+  if(el._fbId && typeof fbEliminarRegistro==='function') { if(typeof fbPause==='function') fbPause(3000); fbEliminarRegistro(el._fbId); }
   papelera.unshift({...el,eliminadoEn:new Date().toLocaleString('es-CL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})});
   cModal('modal-reg');updMetrics();rReg();rPlanif();rComp();rPapelera();
 }
