@@ -137,7 +137,13 @@ window.fbCargarConfig = async function() {
         if(idx >= 0) DB.areas[idx] = {...DB.areas[idx], ...a};
       });
     }
-    if(usrsSnap.docs.length > 0) DB.usuarios = usrsSnap.docs.map(d => d.data());
+    if(usrsSnap.docs.length > 0){
+      const fbUsuarios = usrsSnap.docs.map(d => d.data());
+      // Combinar: agregar los de Firebase que no estén ya en DB.usuarios (por nombre)
+      fbUsuarios.forEach(u => {
+        if(!DB.usuarios.find(x => x.nombre === u.nombre)) DB.usuarios.push(u);
+      });
+    }
   } catch(e) { console.error("Error cargando config:", e); }
 };
 
@@ -204,6 +210,38 @@ window.fbInit = async function() {
       if(typeof rAlmacen === 'function') rAlmacen();
       if(typeof updAlmacenBadge === 'function') updAlmacenBadge();
     });
+    onSnapshot(collection(db, "papelera"), (snap) => {
+      if(window.fbPaused) return;
+      papelera = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
+      if(typeof rPapelera === 'function') rPapelera();
+    });
+    onSnapshot(collection(db, "usuarios"), (snap) => {
+      if(window.fbPaused) return;
+      if(snap.docs.length > 0){
+        const fbUsuarios = snap.docs.map(d => d.data());
+        // Merge: no reemplazar hardcodeados, agregar/actualizar los de Firebase
+        fbUsuarios.forEach(u => {
+          const idx = DB.usuarios.findIndex(x => x.nombre === u.nombre);
+          if(idx >= 0) DB.usuarios[idx] = u; else DB.usuarios.push(u);
+        });
+        if(typeof rUsers === 'function') rUsers();
+        if(typeof rUsrTab === 'function') rUsrTab();
+      }
+    });
+    onSnapshot(collection(db, "areas"), (snap) => {
+      if(window.fbPaused) return;
+      if(snap.docs.length > 0){
+        snap.docs.forEach(d => {
+          const area = d.data();
+          const idx = DB.areas.findIndex(a => a.id === area.id);
+          // Merge: conservar propiedades hardcodeadas (icon, desc) y actualizar maquinas
+          if(idx >= 0) DB.areas[idx] = {...DB.areas[idx], ...area};
+          else DB.areas.push(area);
+        });
+        if(typeof rFMaq === 'function') rFMaq();
+        if(typeof rMaqTab === 'function') rMaqTab();
+      }
+    });
 
     // Siempre actualizar el login con datos frescos
     if(typeof rAreas === 'function') rAreas();
@@ -214,6 +252,26 @@ window.fbInit = async function() {
     if(indicator) { indicator.textContent = '☁ Sin conexión'; indicator.style.color = 'var(--red-t)'; }
     console.error("Error Firebase init:", e);
   }
+};
+
+
+window.fbGuardarPapelera = async function(reg) {
+  try { await setDoc(doc(db, "papelera", reg._fbId||('pap_'+Date.now())), reg); }
+  catch(e) { console.error("Error papelera:", e); }
+};
+window.fbEliminarPapelera = async function(fbId) {
+  try { if(fbId) await deleteDoc(doc(db, "papelera", fbId)); }
+  catch(e) { console.error("Error eliminando papelera:", e); }
+};
+window.fbVaciarPapelera = async function() {
+  try { const snap=await getDocs(collection(db,"papelera")); await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"papelera",d.id)))); }
+  catch(e) { console.error("Error vaciando papelera:", e); }
+};
+window.fbEliminarUsuario = async function(nombre) {
+  try {
+    const fbId = nombre.replace(/\s+/g,'_');
+    await deleteDoc(doc(db, "usuarios", fbId));
+  } catch(e) { console.error("Error eliminando usuario:", e); }
 };
 
 // Esperar a que el DOM esté listo
@@ -883,7 +941,7 @@ tr:hover td{background:var(--bg3);}
         </div>
         <div class="stab" id="t-usr">
           <p class="ptitle">Operarios</p><p class="psub">Equipo de producción</p>
-          <div class="card"><div class="dtw" style="margin-bottom:0;"><table><thead><tr><th>Nombre</th><th>Área</th><th>Registros hoy</th><th>Estado</th></tr></thead><tbody id="tusr"></tbody></table></div></div>
+          <div class="card"><div class="dtw" style="margin-bottom:0;"><table><thead><tr><th>Nombre</th><th>Área</th><th>Registros hoy</th><th>Estado</th><th></th></tr></thead><tbody id="tusr"></tbody></table></div></div>
           <div class="card"><p style="font-size:14px;font-weight:600;margin-bottom:10px;">Agregar operario</p>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1rem;">
               <div><label class="lbl">Nombre</label><input type="text" id="iusr" placeholder="Nombre completo"></div>
@@ -3182,7 +3240,8 @@ function rUsrTab(){
     return '<tr><td><div class="fc g1"><div class="uav" style="width:28px;height:28px;font-size:10px;margin-bottom:0;">'+ini+'</div>'+u.nombre+'</div></td>'+
       '<td><span class="badge b-op">'+(an[u.area]||u.area)+'</span></td>'+
       '<td style="font-family:monospace;">'+(c[u.nombre]||0)+'</td>'+
-      '<td><span class="badge b-ok">Activo</span></td></tr>';
+      '<td><span class="badge b-ok">Activo</span></td>'+
+      '<td><button class="btn btn-red btn-sm" onclick="dUsrByIdx('+lista.indexOf(u)+')" title="Eliminar"><i class="ti ti-trash"></i></button></td></tr>';
   }).join('');
 }
 function aUsr(){
@@ -3193,6 +3252,15 @@ function aUsr(){
   DB.usuarios.push(usr);document.getElementById('iusr').value='';
   if(typeof fbGuardarUsuario==='function') fbGuardarUsuario(usr);
   rUsrTab();
+}
+function dUsrByIdx(idx){
+  const lista=supArea?DB.usuarios.filter(u=>u.area===supArea.id):DB.usuarios;
+  const u=lista[idx]; if(!u)return;
+  if(!confirm('¿Eliminar a "'+u.nombre+'" del sistema?'))return;
+  DB.usuarios=DB.usuarios.filter(x=>x.nombre!==u.nombre);
+  if(typeof fbEliminarUsuario==='function') fbEliminarUsuario(u.nombre).catch(console.error);
+  rUsrTab();
+  if(typeof rUsers==='function') rUsers();
 }
 
 // EXCEL
