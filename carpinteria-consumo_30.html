@@ -824,7 +824,7 @@ tr:hover td{background:var(--bg3);}
             <button class="btn btn-ghost btn-sm" onclick="limpiarFiltrosComp()"><i class="ti ti-x"></i> Limpiar</button>
           </div>
           <div style="font-size:11px;color:var(--text3);font-family:monospace;margin-bottom:8px;" id="comp-count"></div>
-          <div class="dtw"><table><thead><tr><th>OP</th><th>Fecha</th><th>Modelo·Color·Grosor</th><th>Material</th><th>Plan.</th><th>Real</th><th>Reut.</th><th>Sob.</th><th>Diferencia</th><th>Estado</th></tr></thead><tbody id="tcomp"></tbody></table></div>
+          <div class="dtw"><table><thead><tr><th>OP</th><th>Fecha</th><th>Modelo·Color·Grosor</th><th>Material</th><th style="cursor:pointer;user-select:none;" onclick="sortComp('plan')" id="sh-plan">Plan. <span style="opacity:.4;">↕</span></th><th style="cursor:pointer;user-select:none;" onclick="sortComp('real')" id="sh-real">Real <span style="opacity:.4;">↕</span></th><th style="cursor:pointer;user-select:none;" onclick="sortComp('reut')" id="sh-reut">Reut. <span style="opacity:.4;">↕</span></th><th style="cursor:pointer;user-select:none;" onclick="sortComp('sob')" id="sh-sob">Sob. <span style="opacity:.4;">↕</span></th><th style="cursor:pointer;user-select:none;" onclick="sortComp('dif')" id="sh-dif">Diferencia <span style="opacity:.4;">↕</span></th><th style="cursor:pointer;user-select:none;" onclick="sortComp('estado')" id="sh-estado">Estado <span style="opacity:.4;">↕</span></th></tr></thead><tbody id="tcomp"></tbody></table></div>
         </div>
 
         <div class="stab" id="t-resumen">
@@ -1148,7 +1148,7 @@ let papelera = [], historial = [], excelAreaId = null;
 let cUser=null, cArea=null, cMaq=null, cOP=null, cTipo='normal';
 let cMatIdx=null, cCons={}, cLams={}, cLCnt=0;
 let selMode=false, selSet=new Set(), pendOps=[];
-let pendReg=null, supArea=null, osg='', osItem=null, cLastStep='s1', osfecha='';
+let compSort={col:null,dir:1}; let pendReg=null, supArea=null, osg='', osItem=null, cLastStep='s1', osfecha='';
 // Piezas de stock predefinidas
 if(!DB.stockPiezas) DB.stockPiezas = [
   {id:'sp1', nombre:'Tapa lateral',    pct:0.10},
@@ -1243,9 +1243,9 @@ function rFechaTags(){
   const sel  = document.getElementById('sel-fecha');
   if(!cont||!sel) return;
   if(!cArea){ cont.style.display='none'; return; }
-  const fechas = [...new Set(
+  const fechas = sortFechas([...new Set(
     DB.ops.filter(o=>o.area===cArea.id&&o.fecha).map(o=>o.fecha)
-  )].sort();
+  )]);
   if(!fechas.length){ cont.style.display='none'; return; }
   cont.style.display='block';
   const cur = sel.value;
@@ -2028,7 +2028,7 @@ function rResumenDiario(){
 
   // Las fechas vienen SOLO de las OPs (fecha de producción planificada)
   // Los registros se asocian por la fecha de su OP, no por cuándo se guardaron
-  const fechas = [...new Set(allOps.map(o=>o.fecha).filter(Boolean))].sort().reverse();
+  const fechas = sortFechas([...new Set(allOps.map(o=>o.fecha).filter(Boolean))]).reverse();
 
   // Render botones de fecha
   const cont = document.getElementById('rd-fechas'); if(!cont) return;
@@ -2216,7 +2216,7 @@ function renderResumenFecha(fecha, allOps, allRegs){
 
 function initEjecutivo(){
   const allOps = supArea ? DB.ops.filter(o=>o.area===supArea.id) : DB.ops;
-  const fechas = [...new Set(allOps.map(o=>o.fecha).filter(Boolean))].sort();
+  const fechas = sortFechas([...new Set(allOps.map(o=>o.fecha).filter(Boolean))]);
   const sd = document.getElementById('ej-desde');
   const sh = document.getElementById('ej-hasta');
   if(!sd||!sh) return;
@@ -2974,7 +2974,7 @@ function eliminarSobrante(id){
 // ═══════════════════════════════════════════════════════
 function initExportar(){
   const allOps = supArea ? DB.ops.filter(o=>o.area===supArea.id) : DB.ops;
-  const fechas = [...new Set(allOps.map(o=>o.fecha).filter(Boolean))].sort();
+  const fechas = sortFechas([...new Set(allOps.map(o=>o.fecha).filter(Boolean))]);
   const sd = document.getElementById('exp-desde');
   const sh = document.getElementById('exp-hasta');
   if(!sd||!sh) return;
@@ -3357,6 +3357,18 @@ function verLaminas(ri){
   oModal('modal-laminas');
 }
 
+
+function sortFechas(arr){
+  // Ordenar fechas en formato dd/mm/yyyy correctamente
+  return arr.slice().sort((a,b)=>{
+    const pa=a.split('/'), pb=b.split('/');
+    if(pa.length<3||pb.length<3) return a.localeCompare(b);
+    const da=new Date(+pa[2],+pa[1]-1,+pa[0]);
+    const db=new Date(+pb[2],+pb[1]-1,+pb[0]);
+    return da-db;
+  });
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -3496,7 +3508,7 @@ function rPlanif(){
   const fest=(document.getElementById('fpest')||{value:''}).value;
   const allO=supArea?DB.ops.filter(o=>o.area===supArea.id):DB.ops;
   const allR=supArea?DB.registros.filter(r=>r.area===supArea.id):DB.registros;
-  const fechas=[...new Set(allO.map(o=>o.fecha).filter(Boolean))].sort();
+  const fechas=sortFechas([...new Set(allO.map(o=>o.fecha).filter(Boolean))]);
   const sf=document.getElementById('fpfecha');
   if(sf){const cur=sf.value;sf.innerHTML='<option value="">Todas las fechas</option>'+fechas.map(f=>'<option value="'+f+'"'+(f===cur?' selected':'')+'>'+f+'</option>').join('');}
   function getEst(op){
@@ -3629,7 +3641,7 @@ function rComp(){
   const selGrosor = document.getElementById('cf-grosor');
   if(selFecha && selColor && selGrosor){
     const curF=selFecha.value, curC=selColor.value, curG=selGrosor.value;
-    const fechas  = [...new Set(allO.map(o=>o.fecha).filter(Boolean))].sort();
+    const fechas  = sortFechas([...new Set(allO.map(o=>o.fecha).filter(Boolean))]);
     const colores = [...new Set(allO.map(o=>o.color).filter(Boolean))].sort();
     const grosores= [...new Set(allO.map(o=>o.grosor).filter(Boolean))].sort();
     selFecha.innerHTML  = '<option value="">Todas</option>'  + fechas.map(f=>'<option value="'+f+'"'+(f===curF?' selected':'')+'>'+f+'</option>').join('');
@@ -3644,7 +3656,7 @@ function rComp(){
   const fGrosor = document.getElementById('cf-grosor')?.value || '';
   const fEstado = document.getElementById('cf-estado')?.value || '';
 
-  const rows = [];
+  const rows = []; const rowData = [];
   let total = 0;
 
   allO.forEach(op=>{
@@ -3671,7 +3683,17 @@ function rComp(){
       }
 
       total++;
-      rows.push('<tr>'+
+      if(!window.rowData) window.rowData=[];
+      const _dif = tR ? dif : null;
+      const _dPctN = (tR && dPct!==null) ? dPct : null;
+      rowData.push({
+        plan:   m.planificado||0,
+        real:   tR ? rd.hojas : -1,
+        reut:   (tR && rd.reutilizado>0) ? rd.reutilizado : -1,
+        sob:    tR ? rd.sobrante : -1,
+        dif:    _dif!==null ? Math.abs(_dif) : -999,
+        estado: tR ? 1 : 0,
+        html: '<tr>'+
         '<td><span class="badge b-op">'+op.op+'</span></td>'+
         '<td style="font-family:monospace;font-size:11px;color:var(--text2);">'+(op.fecha||'—')+'</td>'+
         '<td style="font-family:monospace;font-size:12px;">'+op.modelo+'<br><span style="color:var(--text2);">'+op.color+' · '+op.grosor+'</span></td>'+
@@ -3681,19 +3703,49 @@ function rComp(){
         '<td style="font-family:monospace;color:var(--wood-t);">'+(tR&&rd.reutilizado>0?rd.reutilizado.toFixed(2):'—')+'</td>'+
         '<td style="font-family:monospace;color:var(--text2);">'+(tR?rd.sobrante.toFixed(2):'—')+'</td>'+
         '<td>'+(tR?'<span class="'+dCls+'">'+(dif>0?'+':'')+dif.toFixed(2)+(dPct!==null?' ('+dPct.toFixed(1)+'%)':'')+'</span>':'<span style="color:var(--text3)">—</span>')+'</td>'+
-        '<td>'+(tR?'<span class="badge b-ok">Registrado</span>':'<span class="badge b-pend">Pendiente</span>')+'</td></tr>');
+        '<td>'+(tR?'<span class="badge b-ok">Registrado</span>':'<span class="badge b-pend">Pendiente</span>')+'</td></tr>'});
     });
   });
 
-  document.getElementById('tcomp').innerHTML = rows.join('');
+  // Ordenar filas si hay columna activa
+  if(compSort.col && rowData.length){
+    rowData.sort((a,b)=>{
+      let va=a[compSort.col], vb=b[compSort.col];
+      if(typeof va==='string') return va.localeCompare(vb)*compSort.dir;
+      return (va-vb)*compSort.dir;
+    });
+  }
+
+  document.getElementById('tcomp').innerHTML = rowData.map(r=>r.html).join('');
   const cnt = document.getElementById('comp-count');
   if(cnt) cnt.textContent = total + ' fila' + (total!==1?'s':'') + ' · ' + allO.length + ' OPs totales';
+}
+
+
+function sortComp(col){
+  if(compSort.col===col) compSort.dir *= -1;
+  else { compSort.col=col; compSort.dir=-1; } // default: mayor a menor
+  // Actualizar indicadores en headers
+  ['plan','real','reut','sob','dif','estado'].forEach(c=>{
+    const el=document.getElementById('sh-'+c);
+    if(!el) return;
+    const arr = compSort.col===c ? (compSort.dir===-1?'↓':'↑') : '↕';
+    const op  = compSort.col===c ? '1' : '.4';
+    el.innerHTML = el.innerHTML.replace(/Plan\.|Real|Reut\.|Sob\.|Diferencia|Estado/,'$&') // keep label
+      .replace(/<span[^>]*>.*?<\/span>/, '<span style="opacity:'+op+';">'+arr+'</span>');
+  });
+  rComp();
 }
 
 function limpiarFiltrosComp(){
   ['cf-op','cf-fecha','cf-color','cf-grosor','cf-estado'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.value = '';
+  });
+  compSort={col:null,dir:1};
+  ['plan','real','reut','sob','dif','estado'].forEach(c=>{
+    const el=document.getElementById('sh-'+c); if(!el) return;
+    el.innerHTML=el.innerHTML.replace(/<span[^>]*>.*?<\/span>/,'<span style="opacity:.4;">↕</span>');
   });
   rComp();
 }
