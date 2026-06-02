@@ -586,6 +586,45 @@ tr:hover td{background:var(--bg3);}
 .sob-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-family:'DM Mono',monospace;padding:3px 9px;border-radius:5px;cursor:pointer;border:0.5px solid var(--wood);background:var(--wood-bg);color:var(--wood-t);transition:background .12s;}
 .sob-chip:hover{background:var(--amber-bg);}
 
+
+/* ── CALCULADORA LATERAL ── */
+.calc-panel{
+  position:fixed;right:0;top:50%;transform:translateY(-50%);
+  width:280px;background:var(--bg2);border:0.5px solid var(--border);
+  border-left:none;border-radius:12px 0 0 12px;
+  box-shadow:-4px 0 20px rgba(0,0,0,.08);
+  z-index:50;transition:right .25s ease;
+  display:none; /* oculto por defecto, solo visible en paso 3 */
+}
+.calc-panel.open{ display:block; }
+.calc-panel.collapsed{ right:-246px; }
+.calc-toggle{
+  position:absolute;left:-34px;top:50%;transform:translateY(-50%);
+  width:34px;height:56px;background:var(--blue-bg);border:0.5px solid var(--blue);
+  border-right:none;border-radius:8px 0 0 8px;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;color:var(--blue-t);font-size:16px;
+}
+.calc-toggle:hover{background:var(--amber-bg);border-color:var(--amber);color:var(--amber-t);}
+.calc-body{padding:14px;}
+.calc-title{font-size:12px;font-weight:600;color:var(--text2);font-family:monospace;
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;
+  display:flex;align-items:center;gap:6px;}
+.calc-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;}
+.calc-inp{padding:10px 8px;font-size:15px;font-weight:500;border:0.5px solid var(--border);
+  border-radius:6px;background:var(--bg);text-align:center;width:100%;}
+.calc-inp:focus{outline:none;border-color:var(--blue);}
+.calc-result{background:var(--blue-bg);border:0.5px solid var(--blue);
+  border-radius:8px;padding:10px;text-align:center;margin-top:6px;}
+.calc-pct{font-size:22px;font-weight:700;font-family:monospace;color:var(--blue-t);}
+.calc-sub{font-size:11px;color:var(--blue-t);opacity:.7;margin-top:2px;}
+.calc-pieces{margin-top:8px;}
+.calc-piece-row{display:flex;align-items:center;gap:4px;margin-bottom:4px;}
+.calc-piece-row input{flex:1;padding:5px 6px;font-size:12px;border:0.5px solid var(--border);border-radius:5px;background:var(--bg);text-align:center;}
+.calc-piece-row .piece-pct{font-size:12px;font-weight:600;font-family:monospace;color:var(--green-t);background:var(--green-bg);border:0.5px solid var(--green);padding:5px 7px;border-radius:4px;white-space:nowrap;min-width:46px;text-align:center;}
+.calc-total-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-top:6px;}
+.calc-total-fill{height:100%;border-radius:3px;transition:width .3s;}
+.calc-total-lbl{font-size:11px;font-family:monospace;text-align:right;margin-top:3px;}
+
 </style>
 </head>
 <body>
@@ -1160,7 +1199,13 @@ if(!DB.stockPiezas) DB.stockPiezas = [
 function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
 function logout(){ cUser=null; cArea=null; cMaq=null; rAreas(); show('screen-login'); }
 function cambiarMaq(){ rMaqs(); show('screen-maquina'); }
-function showStep(id){ ['s1','s2','s3','s4','sexito'].forEach(s=>{ const el=document.getElementById(s); if(el) el.style.display='none'; }); const t=document.getElementById(id); if(t) t.style.display='block'; }
+function showStep(id){
+  ['s1','s2','s3','s4','sexito'].forEach(s=>{ const el=document.getElementById(s); if(el) el.style.display='none'; });
+  const t=document.getElementById(id); if(t) t.style.display='block';
+  // Mostrar calculadora solo en paso 3
+  const calc=document.getElementById('calc-panel');
+  if(calc){ if(id==='s3') calc.classList.add('open'); else calc.classList.remove('open','collapsed'); }
+}
 
 // ═══════════ LOGIN ═══════════
 function rAreas(){
@@ -1655,58 +1700,55 @@ function usarResto(lid){
   const libre=getLibre(lid);
   if(libre<0.01){alert('No hay espacio libre en la lámina');return;}
 
-  // Calcular el bounding box del espacio ocupado para determinar dónde poner el resto
-  // Estrategia: encontrar la región rectangular más grande disponible
-  // Simplificado: si hay zonas, ocupar el espacio restante a la derecha o abajo
   const zonas=lam.zonas;
-  let resto=null;
 
   if(!zonas.length){
     // Lámina vacía — usar todo
-    resto={x:0,y:0,w:MLW,h:MLH};
-  } else {
-    // Intentar llenar a la derecha del punto más a la derecha usado
-    const maxX=Math.max(...zonas.map(z=>z.x+z.w));
-    const maxY=Math.max(...zonas.map(z=>z.y+z.h));
-    const minX=Math.min(...zonas.map(z=>z.x));
+    const resto={x:0,y:0,w:MLW,h:MLH};
+    lam.zonas.push({opKey:lam.opActual.opKey,label:lam.opActual.label,tipo:lam.opActual.tipo,x:0,y:0,w:MLW,h:MLH});
+    drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);
+    return;
+  }
 
-    // Opción 1: franja derecha
-    if(MLW-maxX > 20){
-      resto={x:maxX,y:0,w:MLW-maxX,h:MLH};
-    }
-    // Opción 2: franja inferior
-    else if(MLH-maxY > 10){
-      resto={x:0,y:maxY,w:MLW,h:MLH-maxY};
-    }
-    // Opción 3: franja izquierda (si hay espacio antes de minX)
-    else if(minX > 20){
-      resto={x:0,y:0,w:minX,h:MLH};
-    }
-    // Opción 4: llenar todo lo que queda (puede superponerse — usar con cuidado)
-    else {
-      // Recorrer columnas de 1px para encontrar espacio
-      // Simplificado: franja desde 0 hasta el inicio de la primera zona
-      const sorted=zonas.slice().sort((a,b)=>a.x-b.x);
-      if(sorted[0].x>20) resto={x:0,y:0,w:sorted[0].x,h:MLH};
+  // Algoritmo: probar todos los rectángulos candidatos y encontrar el más grande sin superposición
+  // Los candidatos se forman en los bordes de las zonas existentes
+  const xs = [0, ...zonas.flatMap(z=>[z.x, z.x+z.w]), MLW];
+  const ys = [0, ...zonas.flatMap(z=>[z.y, z.y+z.h]), MLH];
+  const xSet = [...new Set(xs)].sort((a,b)=>a-b);
+  const ySet = [...new Set(ys)].sort((a,b)=>a-b);
+
+  let mejorArea = 0;
+  let mejor = null;
+
+  // Probar cada combinación de esquinas
+  for(let i=0;i<xSet.length-1;i++){
+    for(let j=0;j<ySet.length-1;j++){
+      const x1=xSet[i], y1=ySet[j];
+      // Expandir hacia abajo y derecha lo máximo posible sin superponerse
+      for(let i2=i+1;i2<xSet.length;i2++){
+        for(let j2=j+1;j2<ySet.length;j2++){
+          const w=xSet[i2]-x1, h=ySet[j2]-y1;
+          if(w<5||h<5) continue;
+          if(!zOver(lid,x1,y1,w,h)){
+            const area=w*h;
+            if(area>mejorArea){
+              mejorArea=area;
+              mejor={x:x1,y:y1,w,h};
+            }
+          }
+        }
+      }
     }
   }
 
-  if(!resto){alert('No se pudo calcular el espacio libre. Dibujá la zona manualmente.');return;}
-
-  // Verificar superposición
-  if(zOver(lid,resto.x,resto.y,resto.w,resto.h)){
-    // Intentar ajustar
-    alert('El espacio libre está fragmentado. Dibujá la zona manualmente.');
+  if(!mejor||mejorArea<100){
+    alert('No se encontró espacio libre continuo. Dibujá la zona manualmente.');
     return;
   }
 
   lam.zonas.push({opKey:lam.opActual.opKey,label:lam.opActual.label,tipo:lam.opActual.tipo,
-    x:resto.x,y:resto.y,w:resto.w,h:resto.h});
+    x:mejor.x,y:mejor.y,w:mejor.w,h:mejor.h});
   drawLam(lid);updLRes(lid);updLeg(lid);updTotal();updFree(lid);updBtnResto(lid);
-
-  // Actualizar label del botón
-  const btn=document.getElementById('btnresto'+lid);
-  if(btn) updBtnResto(lid);
 }
 function selLeg(lid,opKey){
   const lam=GL(lid);if(!lam)return;
@@ -2556,7 +2598,7 @@ function buildPDFHTML(d, areaNom, hoy){
 
   // ── Footer ──
   html += '<div class="footer"><span>línea italia · Control de Materiales · '+areaNom+'</span><span>'+hoy+'</span></div>';
-  html += '</body></html>';
+  html += '\n</body></html>';
   return html;
 }
 
@@ -2627,7 +2669,7 @@ function parseFechaExcel(raw){
 }
 
 // ═══════════ CATÁLOGO DE MELAMINAS ═══════════
-const CATALOGO_MELAMINAS = [{"sku": "10601001", "nombre": "MELAMINA ARCE MAPLE 19 MM", "color": "Arce Maple", "grosor": "19MM"}, {"sku": "10601002", "nombre": "MELAMINA MAPLE ARCE 12 MM", "color": "Maple Arce", "grosor": "12MM"}, {"sku": "10601003", "nombre": "MELAMINA GRAFITO 12 MM", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601004", "nombre": "MELAMINA GRAFITO 19 MM", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601005", "nombre": "MELAMINA GRAFITO 28 MM", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601006", "nombre": "MELAMINA GRIS 12 MM", "color": "Gris", "grosor": "12MM"}, {"sku": "10601007", "nombre": "MELAMINA GRIS 28 MM", "color": "Gris", "grosor": "28MM"}, {"sku": "10601008", "nombre": "MELAMINA GRIS 19 MM", "color": "Gris", "grosor": "19MM"}, {"sku": "10601009", "nombre": "MELAMINA ARCE MAPLE 16 MM", "color": "Arce Maple", "grosor": null}, {"sku": "10601010", "nombre": "MELAMINA CEREZO 16 MM", "color": "Cerezo", "grosor": null}, {"sku": "10601011", "nombre": "MELAMINA NOGAL NEO 16 MM", "color": "Nogal Neo", "grosor": null}, {"sku": "10601012", "nombre": "MELAMINA ARCE MAPLE 28 MM", "color": "Arce Maple", "grosor": "28MM"}, {"sku": "10601013", "nombre": "MELAMINA CEREZO 12 MM", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601014", "nombre": "MELAMINA CEREZO 19 MM", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601015", "nombre": "MELAMINA CEREZO 28 MM", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601016", "nombre": "MELAMINA LUXOR 19 MM", "color": "Luxor", "grosor": "19MM"}, {"sku": "10601017", "nombre": "MELAMINA ROBLE PLATA 28 MM", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601018", "nombre": "MELAMINA ROBLE PLATA 19 MM", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601019", "nombre": "MELAMINA ROBLE PLATA 12 MM", "color": "Roble Plata", "grosor": "12MM"}, {"sku": "10601020", "nombre": "MELAMINA BLANCO FROSTY 16 MM", "color": "Blanco Frosty", "grosor": null}, {"sku": "10601021", "nombre": "MELAMINA WENGUE 16 MM", "color": "Wengue", "grosor": null}, {"sku": "10601022", "nombre": "MELAMINA OYAMEL 16 MM", "color": "Oyamel", "grosor": null}, {"sku": "10601023", "nombre": "MELAMINA ROBLE TABACO 16 MM", "color": "Roble Tabaco", "grosor": null}, {"sku": "10601024", "nombre": "MDF 5.5 RAYADO A DOS CARAS", "color": "Mdf 5.5 Rayado A Dos Caras", "grosor": null}, {"sku": "10601026", "nombre": "MELAMINA ANAHUAC 12MM ÉBANO", "color": "Anahuac", "grosor": "12MM"}, {"sku": "10601027", "nombre": "MELAMINA MONARCA 12MM EUCALIPT", "color": "Monarca", "grosor": "12MM"}, {"sku": "10601028", "nombre": "MELAMINA ENCINO POLAR 12 MM", "color": "Encino Polar", "grosor": "12MM"}, {"sku": "10601029", "nombre": "MELAMINA ANAHUAC 16MM", "color": "Anahuac", "grosor": null}, {"sku": "10601031", "nombre": "MELAMINA MONARCA 16MM EUCALIPT", "color": "Monarca", "grosor": null}, {"sku": "10601033", "nombre": "MELAMINA BLANCO FROSTY 12 MM", "color": "Blanco Frosty", "grosor": "12MM"}, {"sku": "10601034", "nombre": "MELAMINA BLANCO FROSTY 19 MM", "color": "Blanco Frosty", "grosor": "19MM"}, {"sku": "10601035", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601036", "nombre": "MELAMINA OYAMEL 19 MM", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601037", "nombre": "MELAMINA ENCINO POLAR 16 MM", "color": "Encino Polar", "grosor": null}, {"sku": "10601038", "nombre": "MELAMINA OYAMEL 12 MM", "color": "Oyamel", "grosor": "12MM"}, {"sku": "10601039", "nombre": "MELAMINA  ARCE 12 MM CARB II", "color": "Arce", "grosor": "12MM"}, {"sku": "10601040", "nombre": "MELAMINA ARCE 19 MM CARB II", "color": "Arce", "grosor": "19MM"}, {"sku": "10601041", "nombre": "MELAMINA ROBLE PLATA 19MM CARB", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601042", "nombre": "MELAMINA OYAMEL 19 MM CARB II", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601045", "nombre": "MELAMINA MONARCA 28MM EUCALIPTO", "color": "Monarca", "grosor": "28MM"}, {"sku": "10601046", "nombre": "MELAMINA WENGUE 214 19 MM 2 CA", "color": "Wengue 214", "grosor": "19MM"}, {"sku": "10601047", "nombre": "MELAMINA WENGUE 214 28 MM 2 CA", "color": "Wengue 214", "grosor": "28MM"}, {"sku": "10601048", "nombre": "MELAMINA OYAMEL DE 28 MM", "color": "Oyamel De", "grosor": "28MM"}, {"sku": "10601049", "nombre": "MELAMINA ANAHUAC 28MM", "color": "Anahuac", "grosor": "28MM"}, {"sku": "10601050", "nombre": "MELAMINA NOGAL NEO 12 MM", "color": "Nogal Neo", "grosor": "12MM"}, {"sku": "10601051", "nombre": "MELAMINA NOGAL NEO 19 MM", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601052", "nombre": "MELAMINA NOGAL NEO 28 MM", "color": "Nogal Neo", "grosor": "28MM"}, {"sku": "10601053", "nombre": "MELAMINA ROBLE TABACO 19 MM", "color": "Roble Tabaco", "grosor": "19MM"}, {"sku": "10601054", "nombre": "MELAMINA ROBLE TABACO 28 MM", "color": "Roble Tabaco", "grosor": "28MM"}, {"sku": "10601055", "nombre": "MELAMINA ROBLE TABACO 12 MM", "color": "Roble Tabaco", "grosor": "12MM"}, {"sku": "10601056", "nombre": "MELAMINA ARCE MASISA 19 MM", "color": "Arce Masisa", "grosor": "19MM"}, {"sku": "10601057", "nombre": "MELAMINA GRAFITO 12 MM CARB II", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601058", "nombre": "MELAMINA GRAFITO 19 MM CARB II", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601059", "nombre": "MELAMINA GRAFITO 28 MM CARB II", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601060", "nombre": "MELAMINA ARCE 28 MM CARB II", "color": "Arce", "grosor": "28MM"}, {"sku": "10601062", "nombre": "MELAMINA ROBLE PLATA 28MM CARB", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601063", "nombre": "MELAMINA CEREZO 12 MM CARB II", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601064", "nombre": "MELAMINA CEREZO 19 MM CARB II", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601065", "nombre": "MELAMINA CEREZO 28 MM CARB II", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601067", "nombre": "MELAMINA GRIS 19 MM CARB II", "color": "Gris", "grosor": "19MM"}, {"sku": "10601069", "nombre": "MELAMINA WENGUE 19 MM", "color": "Wengue", "grosor": "19MM"}, {"sku": "10601070", "nombre": "MELAMINA SOLAR OAK G25 4 X9 FT", "color": "Solar Oak G25 4 X9 Ft", "grosor": null}, {"sku": "10601071", "nombre": "MELAMINA BILTMORE CHERRY 4 X 9", "color": "Biltmore Cherry 4 X 9", "grosor": null}, {"sku": "10601072", "nombre": "MELAMINA AMBER CHERRY 4 x 9 ft", "color": "Amber Cherry 4 X 9 Ft", "grosor": null}, {"sku": "10601073", "nombre": "MELAMINA KENSINGTON MAPLE 4X9", "color": "Kensington Maple 4X9", "grosor": null}, {"sku": "10601074", "nombre": "MELAMINA CAFELLE 4 X 9 FT", "color": "Cafelle 4 X 9 Ft", "grosor": null}, {"sku": "10601075", "nombre": "MELAMINA WILLIAMSBURG CHERRY", "color": "Williamsburg Cherry", "grosor": null}, {"sku": "10601076", "nombre": "MELAMINA TUSCAN WALNUT 4 X 9", "color": "Tuscan Walnut 4 X 9", "grosor": null}, {"sku": "10601077", "nombre": "MELAMINA TABACO 12 MM CARB II", "color": "Tabaco", "grosor": "12MM"}, {"sku": "10601078", "nombre": "MELAMINA TABACO 19 MM CARB II", "color": "Tabaco", "grosor": "19MM"}, {"sku": "10601079", "nombre": "MELAMINA TABACO 28 MM CARB II", "color": "Tabaco", "grosor": "28MM"}, {"sku": "10601081", "nombre": "MELAMINA AFRICAN WALNUT 4 X 9", "color": "African Walnut 4 X 9", "grosor": null}, {"sku": "10601082", "nombre": "MELAMINA BLANCO 19 MM CARB II", "color": "Blanco", "grosor": "19MM"}, {"sku": "10601089", "nombre": "MELAMINA P. CENIZA 19 MM", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601090", "nombre": "MELAMINA P. CENIZA 28 MM", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601091", "nombre": "MELAMINA WENGUE 28 MM", "color": "Wengue", "grosor": "28MM"}, {"sku": "10601092", "nombre": "MELAMINA P. CENIZA 12MM", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601093", "nombre": "MELAMINA WENGUE 12 MM", "color": "Wengue", "grosor": "12MM"}, {"sku": "10601095", "nombre": "MELAMINA P. CENIZA 12MM CARBII", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601096", "nombre": "MELAMINA P. CENIZA 19MM CARBII", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601097", "nombre": "MELAMINA P. CENIZA 28MM CARBII", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601098", "nombre": "MELAMINA NOGAL NEO19 MM CARBII", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601099", "nombre": "MELAMINA P. CENIZA 16 MM", "color": "P. Ceniza", "grosor": null}, {"sku": "10601100", "nombre": "MELAMINA NUUK SENSE 16 MM", "color": "Nuuk Sense", "grosor": null}, {"sku": "10601101", "nombre": "MELAMINA GRIS CLARO 19 MM", "color": "Gris Claro", "grosor": "19MM"}, {"sku": "10601102", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601104", "nombre": "MELAMINA ANAHUAC 19MM ÉBANO", "color": "Anahuac", "grosor": "19MM"}, {"sku": "10601105", "nombre": "MELAMINA MONARCA 19MM EUCALIPTO", "color": "Monarca", "grosor": "19MM"}, {"sku": "10601106", "nombre": "MELAMINA ENCINO POLAR 19 MM", "color": "Encino Polar", "grosor": "19MM"}, {"sku": "10601107", "nombre": "MELAMINA ENCINO POLAR 28 MM", "color": "Encino Polar", "grosor": "28MM"}, {"sku": "10601108", "nombre": "MELAMINA NEGRA 19MM", "color": "Negra", "grosor": "19MM"}, {"sku": "10601110", "nombre": "MELAMINA SUPERPAN 91B ROBLE RE", "color": "Superpan 91B Roble Re", "grosor": null}, {"sku": "10601111", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601112", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601113", "nombre": "MELAMINA DURAPLAY BLANCO FROST", "color": "Duraplay Blanco Frost", "grosor": null}, {"sku": "10601116", "nombre": "MELAMINA GRIS CLARO 28 MM", "color": "Gris Claro", "grosor": "28MM"}, {"sku": "10601117", "nombre": "MELAMINA NEGRA DE 12 MM", "color": "Negra De", "grosor": "12MM"}, {"sku": "10601120", "nombre": "MELAMINA IMPORTACION CENIZO", "color": "Importacion Cenizo", "grosor": null}, {"sku": "10601121", "nombre": "MELAMINA NEGRA 28 MM", "color": "Negra", "grosor": "28MM"}, {"sku": "10601122", "nombre": "MELAMINA IMPORTACION CAOBA", "color": "Importacion Caoba", "grosor": null}, {"sku": "10601123", "nombre": "MELAMINA OXFORD 19MM", "color": "Oxford", "grosor": "19MM"}, {"sku": "10601124", "nombre": "MELAMINA ZAFIRO 19MM", "color": "Zafiro", "grosor": "19MM"}, {"sku": "10601125", "nombre": "MELAMINA OXFORD 28MM", "color": "Oxford", "grosor": "28MM"}, {"sku": "10601126", "nombre": "MELAMINA ZAFIRO 28MM", "color": "Zafiro", "grosor": "28MM"}, {"sku": "10601127", "nombre": "MELAMINA OXFORD 12MM", "color": "Oxford", "grosor": "12MM"}, {"sku": "10601128", "nombre": "MELAMINA ZAFIRO 12MM", "color": "Zafiro", "grosor": "12MM"}, {"sku": "10601129", "nombre": "MELAMINA ROBLE MERIDA 19 MM", "color": "Roble Merida", "grosor": "19MM"}, {"sku": "10601130", "nombre": "MELAMINA ROBLE MERIDA 16 MM", "color": "Roble Merida", "grosor": null}, {"sku": "10601131", "nombre": "MELAMINA ROBLE ETERNITY 28MM", "color": "Roble Eternity", "grosor": "28MM"}, {"sku": "10601132", "nombre": "MELAMINA ROBLE ETERNITY 19MM", "color": "Roble Eternity", "grosor": "19MM"}, {"sku": "10601133", "nombre": "MELAMINA ROBLE TRIGO 28MM", "color": "Roble Trigo", "grosor": "28MM"}, {"sku": "10601134", "nombre": "MELAMINA ROBLE TRIGO 19MM", "color": "Roble Trigo", "grosor": "19MM"}, {"sku": "10601135", "nombre": "MELAMINA ROBLE SINATRA 28MM", "color": "Roble Sinatra", "grosor": "28MM"}, {"sku": "10601136", "nombre": "MELAMINA ROBLE SINATRA 19MM", "color": "Roble Sinatra", "grosor": "19MM"}, {"sku": "10601137", "nombre": "MELAMINA ROBLE SANTANA 28MM", "color": "Roble Santana", "grosor": "28MM"}, {"sku": "10601138", "nombre": "MELAMINA ROBLE SANTANA 19MM", "color": "Roble Santana", "grosor": "19MM"}, {"sku": "10601139", "nombre": "MELAMINA TEKA ARTICO 24MM", "color": "Teka Artico", "grosor": null}, {"sku": "10601140", "nombre": "MELAMINA NOGAL BRITANICO 28 MM", "color": "Nogal Britanico", "grosor": "28MM"}, {"sku": "10601141", "nombre": "MELAMINA NOGAL BRITANICO 19MM", "color": "Nogal Britanico", "grosor": "19MM"}, {"sku": "10601142", "nombre": "MELAMINA FRESNO BRUMA 19MM", "color": "Fresno Bruma", "grosor": "19MM"}, {"sku": "10601143", "nombre": "MELAMINA NOGAL TERRACOTA 30MM", "color": "Nogal Terracota", "grosor": null}, {"sku": "10601145", "nombre": "MELAMINA CENIZO TEXTURIZADA 19 MM", "color": "Cenizo Texturizada", "grosor": "19MM"}, {"sku": "10601146", "nombre": "MELAMINA NOGAL TEXTURIZADA 19 MM", "color": "Nogal Texturizada", "grosor": "19MM"}, {"sku": "10601147", "nombre": "MELAMINA NOGAL TEXTURIZADA 28 MM", "color": "Nogal Texturizada", "grosor": "28MM"}, {"sku": "10601148", "nombre": "MELAMINA ROMERO 19 MM", "color": "Romero", "grosor": "19MM"}, {"sku": "10601149", "nombre": "MELAMINA ROMERO 28 MM", "color": "Romero", "grosor": "28MM"}, {"sku": "10601150", "nombre": "MELAMINA TERRA 19 MM", "color": "Terra", "grosor": "19MM"}, {"sku": "10601151", "nombre": "MELAMINA TERRA 28 MM", "color": "Terra", "grosor": "28MM"}, {"sku": "10601152", "nombre": "MELAMINA ROBLE MERIDA 28 MM", "color": "Roble Merida", "grosor": "28MM"}, {"sku": "10601154", "nombre": "MELAMINA ROMERO 12MM", "color": "Romero", "grosor": "12MM"}, {"sku": "10601155", "nombre": "MELAMINA TERRA 12MM", "color": "Terra", "grosor": "12MM"}, {"sku": "10601156", "nombre": "MELAMINA ZAFIRO 16 MM", "color": "Zafiro", "grosor": null}, {"sku": "10601157", "nombre": "MELAMINA NEGRA 16 MM", "color": "Negra", "grosor": null}, {"sku": "10601158", "nombre": "MELAMINA VISION 19 MM", "color": "Vision", "grosor": "19MM"}, {"sku": "10601159", "nombre": "MELAMINA OLMO FORESTA 19 MM", "color": "Olmo Foresta", "grosor": "19MM"}, {"sku": "10601160", "nombre": "MELAMINA OLMO FORESTA 28 MM", "color": "Olmo Foresta", "grosor": "28MM"}, {"sku": "10601161", "nombre": "MELAMINA BRAZZAVILLE WENGUE 19 MM", "color": "Brazzaville Wengue", "grosor": "19MM"}, {"sku": "10601162", "nombre": "MELAMINA BRAZZAVILLE WENGUE 28 MM", "color": "Brazzaville Wengue", "grosor": "28MM"}, {"sku": "10601163", "nombre": "MELAMINA ENCINO CALIZA 19 MM", "color": "Encino Caliza", "grosor": "19MM"}, {"sku": "10601164", "nombre": "MELAMINA ENCINO CALIZA 28 MM", "color": "Encino Caliza", "grosor": "28MM"}, {"sku": "10601165", "nombre": "MELAMINA LATTE 19 MM", "color": "Latte", "grosor": "19MM"}, {"sku": "10601166", "nombre": "MELAMINA LATTE 28 MM", "color": "Latte", "grosor": "28MM"}, {"sku": "10602001", "nombre": "MDF 3 MM", "color": "Mdf 3 Mm", "grosor": null}, {"sku": "10602002", "nombre": "MDF 5.5 MM 122 X 244 CM", "color": "122 X 244 Cm", "grosor": "5.5MM"}, {"sku": "10602003", "nombre": "MDF 5.5 MM MELAMINA ARCE MAPLE", "color": "Arce Maple", "grosor": "5.5MM"}, {"sku": "10602004", "nombre": "MDF 5.5 MM MELAMINA GRAFITO", "color": "Grafito", "grosor": "5.5MM"}, {"sku": "10602006", "nombre": "MDF 5.5 MM MELAMINA GRIS", "color": "Gris", "grosor": "5.5MM"}, {"sku": "10602007", "nombre": "MDF 5.5 MM MELAMINA CEREZO", "color": "Cerezo", "grosor": "5.5MM"}, {"sku": "10602008", "nombre": "MDF 5.5 MM MELAMINA NOGAL NEO", "color": "Nogal Neo", "grosor": "5.5MM"}, {"sku": "10602009", "nombre": "MDF 28 MM MELAMINA BLANCA MATE", "color": "Blanca Mate", "grosor": "28MM"}, {"sku": "10602010", "nombre": "MDF 5.5 MM MELAMINA MONARCA", "color": "Monarca", "grosor": "5.5MM"}, {"sku": "10602011", "nombre": "MDF 5.5 MM MELAMINA BLANCO", "color": "Blanco", "grosor": "5.5MM"}, {"sku": "10602012", "nombre": "MDF 5.5 MM MELAMINA OYAMEL", "color": "Oyamel", "grosor": "5.5MM"}, {"sku": "10602013", "nombre": "MDF 5.5 MM MELAMINA ROBLE TABA", "color": "Roble Taba", "grosor": "5.5MM"}, {"sku": "10602014", "nombre": "MDF 5.5 MM RAYADO 1 CARA", "color": "Rayado 1 Cara", "grosor": "5.5MM"}, {"sku": "10602017", "nombre": "MDF 5.5 MM MELAMINA WENGUE", "color": "Wengue", "grosor": "5.5MM"}, {"sku": "10602018", "nombre": "MDF 5.5 MM MELAMINA PRECOMPUES", "color": "Precompues", "grosor": "5.5MM"}, {"sku": "10602019", "nombre": "MDF 12 MM NATURAL 4 X 8 FT", "color": "Natural 4 X 8 Ft", "grosor": "12MM"}, {"sku": "10602022", "nombre": "MDF ALTO BRILLO BLANCO 18MM", "color": "Mdf Alto Brillo Blanco", "grosor": null}, {"sku": "10602023", "nombre": "MDF 5.5 MM MELAMINA ANAHUAC", "color": "Anahuac", "grosor": "5.5MM"}, {"sku": "10602036", "nombre": "MDF LAMINADO BLANCO BRILLANTE", "color": "Mdf Laminado Blanco Brillante", "grosor": null}, {"sku": "10602037", "nombre": "MDF 12 MM PINTARRON BLANCO", "color": "Pintarron Blanco", "grosor": "12MM"}, {"sku": "10602038", "nombre": "MDF 5.5 MM MELAMINA ENCINO", "color": "Encino", "grosor": "5.5MM"}, {"sku": "10602039", "nombre": "MDF 5.5 MM MELAMINA CARRARA", "color": "Carrara", "grosor": "5.5MM"}, {"sku": "10602042", "nombre": "LAMINADO PLASTICO BLANCO 18MM MDF", "color": "Blanco", "grosor": null}, {"sku": "10602043", "nombre": "LAMINADO PLASTICO BLANCO 25MM MDF", "color": "Blanco", "grosor": null}, {"sku": "10602049", "nombre": "LAMINADO PLASTICO ROJO 18MM MDF", "color": "Rojo", "grosor": null}, {"sku": "10602050", "nombre": "MDF 5.5 MM MELAMINA ROBLE ETERNITY", "color": "Roble Eternity", "grosor": "5.5MM"}, {"sku": "10602051", "nombre": "MDF 5.5 MM MELAMINA ROBLE TRIGO", "color": "Roble Trigo", "grosor": "5.5MM"}, {"sku": "10602052", "nombre": "MDF 5.5 MM MELAMINA ROBLE SINATRA", "color": "Roble Sinatra", "grosor": "5.5MM"}, {"sku": "10602053", "nombre": "MDF 5.5 MM MELAMINA NEGRA", "color": "Negra", "grosor": "5.5MM"}, {"sku": "10602054", "nombre": "MDF 5.5 MM MELAMINA ZAFIRO", "color": "Zafiro", "grosor": "5.5MM"}, {"sku": "10602055", "nombre": "MDF 18 MM NATURAL 4 X 8 FT", "color": "Natural 4 X 8 Ft", "grosor": null}, {"sku": "10602056", "nombre": "LAMINADO PLASTICO GRIS 18MM MDF", "color": "Gris", "grosor": null}, {"sku": "10602063", "nombre": "MDF 5.5 MM MELAMINA ROBLE MERIDA", "color": "Roble Merida", "grosor": "5.5MM"}, {"sku": "10602064", "nombre": "MDF 19 MM MELAMINA PRECOMPUESTO CENIZA", "color": "Precompuesto Ceniza", "grosor": "19MM"}, {"sku": "10602065", "nombre": "MDF 19 MM MELAMINA MONARCA", "color": "Monarca", "grosor": "19MM"}, {"sku": "10602066", "nombre": "MDF 19 MM MELAMINA ENCINO POLAR", "color": "Encino Polar", "grosor": "19MM"}, {"sku": "10602067", "nombre": "MDF 5.5 MM MELAMINA OXFORD", "color": "Oxford", "grosor": "5.5MM"}, {"sku": "10602068", "nombre": "MDF 5.5 MM MELAMINA ROMERO", "color": "Romero", "grosor": "5.5MM"}, {"sku": "10602069", "nombre": "MDF 5.5 MM MELAMINA TERRA", "color": "Terra", "grosor": "5.5MM"}, {"sku": "10602070", "nombre": "MDF 15 MM NATURAL 4 X 8 FT", "color": "Natural 4 X 8 Ft", "grosor": "15MM"}, {"sku": "10602071", "nombre": "MDF 5.5 MM MELAMINA OLMO FORESTA", "color": "Olmo Foresta", "grosor": "5.5MM"}, {"sku": "10602072", "nombre": "MDF 5.5 MM MELAMINA CONCRETO OBSCURO", "color": "Concreto Obscuro", "grosor": "5.5MM"}, {"sku": "10602073", "nombre": "MDF 5.5 MM MELAMINA BRAZZAVILLE WENGUE", "color": "Brazzaville Wengue", "grosor": "5.5MM"}, {"sku": "10602090", "nombre": "MDF 5.5 MM MELAMINA ENCINO CALIZA", "color": "Encino Caliza", "grosor": "5.5MM"}, {"sku": "10604002", "nombre": "MDF 5.5 MM PROTOTIPOS DE 122 X 244 CM", "color": "Prototipos De 122 X 244 Cm", "grosor": "5.5MM"}];
+const CATALOGO_MELAMINAS = [{"sku": "10601001", "nombre": "MELAMINA ARCE MAPLE 19 MM", "color": "Arce Maple", "grosor": "19MM"}, {"sku": "10601002", "nombre": "MELAMINA MAPLE ARCE 12 MM", "color": "Maple Arce", "grosor": "12MM"}, {"sku": "10601003", "nombre": "MELAMINA GRAFITO 12 MM", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601004", "nombre": "MELAMINA GRAFITO 19 MM", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601005", "nombre": "MELAMINA GRAFITO 28 MM", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601006", "nombre": "MELAMINA GRIS 12 MM", "color": "Gris", "grosor": "12MM"}, {"sku": "10601007", "nombre": "MELAMINA GRIS 28 MM", "color": "Gris", "grosor": "28MM"}, {"sku": "10601008", "nombre": "MELAMINA GRIS 19 MM", "color": "Gris", "grosor": "19MM"}, {"sku": "10601009", "nombre": "MELAMINA ARCE MAPLE 16 MM", "color": "Arce Maple", "grosor": "16MM"}, {"sku": "10601010", "nombre": "MELAMINA CEREZO 16 MM", "color": "Cerezo", "grosor": "16MM"}, {"sku": "10601011", "nombre": "MELAMINA NOGAL NEO 16 MM", "color": "Nogal Neo", "grosor": "16MM"}, {"sku": "10601012", "nombre": "MELAMINA ARCE MAPLE 28 MM", "color": "Arce Maple", "grosor": "28MM"}, {"sku": "10601013", "nombre": "MELAMINA CEREZO 12 MM", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601014", "nombre": "MELAMINA CEREZO 19 MM", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601015", "nombre": "MELAMINA CEREZO 28 MM", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601016", "nombre": "MELAMINA LUXOR 19 MM", "color": "Luxor", "grosor": "19MM"}, {"sku": "10601017", "nombre": "MELAMINA ROBLE PLATA 28 MM", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601018", "nombre": "MELAMINA ROBLE PLATA 19 MM", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601019", "nombre": "MELAMINA ROBLE PLATA 12 MM", "color": "Roble Plata", "grosor": "12MM"}, {"sku": "10601020", "nombre": "MELAMINA BLANCO FROSTY 16 MM", "color": "Blanco Frosty", "grosor": "16MM"}, {"sku": "10601021", "nombre": "MELAMINA WENGUE 16 MM", "color": "Wengue", "grosor": "16MM"}, {"sku": "10601022", "nombre": "MELAMINA OYAMEL 16 MM", "color": "Oyamel", "grosor": "16MM"}, {"sku": "10601023", "nombre": "MELAMINA ROBLE TABACO 16 MM", "color": "Roble Tabaco", "grosor": "16MM"}, {"sku": "10601024", "nombre": "MDF 5.5 RAYADO A DOS CARAS", "color": "Mdf 5.5 Rayado A Dos Caras", "grosor": "5.5MM"}, {"sku": "10601026", "nombre": "MELAMINA ANAHUAC 12MM ÉBANO", "color": "Anahuac", "grosor": "12MM"}, {"sku": "10601027", "nombre": "MELAMINA MONARCA 12MM EUCALIPT", "color": "Monarca", "grosor": "12MM"}, {"sku": "10601028", "nombre": "MELAMINA ENCINO POLAR 12 MM", "color": "Encino Polar", "grosor": "12MM"}, {"sku": "10601029", "nombre": "MELAMINA ANAHUAC 16MM", "color": "Anahuac", "grosor": "16MM"}, {"sku": "10601031", "nombre": "MELAMINA MONARCA 16MM EUCALIPT", "color": "Monarca", "grosor": "16MM"}, {"sku": "10601033", "nombre": "MELAMINA BLANCO FROSTY 12 MM", "color": "Blanco Frosty", "grosor": "12MM"}, {"sku": "10601034", "nombre": "MELAMINA BLANCO FROSTY 19 MM", "color": "Blanco Frosty", "grosor": "19MM"}, {"sku": "10601035", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601036", "nombre": "MELAMINA OYAMEL 19 MM", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601037", "nombre": "MELAMINA ENCINO POLAR 16 MM", "color": "Encino Polar", "grosor": "16MM"}, {"sku": "10601038", "nombre": "MELAMINA OYAMEL 12 MM", "color": "Oyamel", "grosor": "12MM"}, {"sku": "10601039", "nombre": "MELAMINA  ARCE 12 MM CARB II", "color": "Arce", "grosor": "12MM"}, {"sku": "10601040", "nombre": "MELAMINA ARCE 19 MM CARB II", "color": "Arce", "grosor": "19MM"}, {"sku": "10601041", "nombre": "MELAMINA ROBLE PLATA 19MM CARB", "color": "Roble Plata", "grosor": "19MM"}, {"sku": "10601042", "nombre": "MELAMINA OYAMEL 19 MM CARB II", "color": "Oyamel", "grosor": "19MM"}, {"sku": "10601045", "nombre": "MELAMINA MONARCA 28MM EUCALIPTO", "color": "Monarca", "grosor": "28MM"}, {"sku": "10601046", "nombre": "MELAMINA WENGUE 214 19 MM 2 CA", "color": "Wengue 214", "grosor": "19MM"}, {"sku": "10601047", "nombre": "MELAMINA WENGUE 214 28 MM 2 CA", "color": "Wengue 214", "grosor": "28MM"}, {"sku": "10601048", "nombre": "MELAMINA OYAMEL DE 28 MM", "color": "Oyamel De", "grosor": "28MM"}, {"sku": "10601049", "nombre": "MELAMINA ANAHUAC 28MM", "color": "Anahuac", "grosor": "28MM"}, {"sku": "10601050", "nombre": "MELAMINA NOGAL NEO 12 MM", "color": "Nogal Neo", "grosor": "12MM"}, {"sku": "10601051", "nombre": "MELAMINA NOGAL NEO 19 MM", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601052", "nombre": "MELAMINA NOGAL NEO 28 MM", "color": "Nogal Neo", "grosor": "28MM"}, {"sku": "10601053", "nombre": "MELAMINA ROBLE TABACO 19 MM", "color": "Roble Tabaco", "grosor": "19MM"}, {"sku": "10601054", "nombre": "MELAMINA ROBLE TABACO 28 MM", "color": "Roble Tabaco", "grosor": "28MM"}, {"sku": "10601055", "nombre": "MELAMINA ROBLE TABACO 12 MM", "color": "Roble Tabaco", "grosor": "12MM"}, {"sku": "10601056", "nombre": "MELAMINA ARCE MASISA 19 MM", "color": "Arce Masisa", "grosor": "19MM"}, {"sku": "10601057", "nombre": "MELAMINA GRAFITO 12 MM CARB II", "color": "Grafito", "grosor": "12MM"}, {"sku": "10601058", "nombre": "MELAMINA GRAFITO 19 MM CARB II", "color": "Grafito", "grosor": "19MM"}, {"sku": "10601059", "nombre": "MELAMINA GRAFITO 28 MM CARB II", "color": "Grafito", "grosor": "28MM"}, {"sku": "10601060", "nombre": "MELAMINA ARCE 28 MM CARB II", "color": "Arce", "grosor": "28MM"}, {"sku": "10601062", "nombre": "MELAMINA ROBLE PLATA 28MM CARB", "color": "Roble Plata", "grosor": "28MM"}, {"sku": "10601063", "nombre": "MELAMINA CEREZO 12 MM CARB II", "color": "Cerezo", "grosor": "12MM"}, {"sku": "10601064", "nombre": "MELAMINA CEREZO 19 MM CARB II", "color": "Cerezo", "grosor": "19MM"}, {"sku": "10601065", "nombre": "MELAMINA CEREZO 28 MM CARB II", "color": "Cerezo", "grosor": "28MM"}, {"sku": "10601067", "nombre": "MELAMINA GRIS 19 MM CARB II", "color": "Gris", "grosor": "19MM"}, {"sku": "10601069", "nombre": "MELAMINA WENGUE 19 MM", "color": "Wengue", "grosor": "19MM"}, {"sku": "10601070", "nombre": "MELAMINA SOLAR OAK G25 4 X9 FT", "color": "Solar Oak G25 4 X9 Ft", "grosor": null}, {"sku": "10601071", "nombre": "MELAMINA BILTMORE CHERRY 4 X 9", "color": "Biltmore Cherry 4 X 9", "grosor": null}, {"sku": "10601072", "nombre": "MELAMINA AMBER CHERRY 4 x 9 ft", "color": "Amber Cherry 4 X 9 Ft", "grosor": null}, {"sku": "10601073", "nombre": "MELAMINA KENSINGTON MAPLE 4X9", "color": "Kensington Maple 4X9", "grosor": null}, {"sku": "10601074", "nombre": "MELAMINA CAFELLE 4 X 9 FT", "color": "Cafelle 4 X 9 Ft", "grosor": null}, {"sku": "10601075", "nombre": "MELAMINA WILLIAMSBURG CHERRY", "color": "Williamsburg Cherry", "grosor": null}, {"sku": "10601076", "nombre": "MELAMINA TUSCAN WALNUT 4 X 9", "color": "Tuscan Walnut 4 X 9", "grosor": null}, {"sku": "10601077", "nombre": "MELAMINA TABACO 12 MM CARB II", "color": "Tabaco", "grosor": "12MM"}, {"sku": "10601078", "nombre": "MELAMINA TABACO 19 MM CARB II", "color": "Tabaco", "grosor": "19MM"}, {"sku": "10601079", "nombre": "MELAMINA TABACO 28 MM CARB II", "color": "Tabaco", "grosor": "28MM"}, {"sku": "10601081", "nombre": "MELAMINA AFRICAN WALNUT 4 X 9", "color": "African Walnut 4 X 9", "grosor": null}, {"sku": "10601082", "nombre": "MELAMINA BLANCO 19 MM CARB II", "color": "Blanco", "grosor": "19MM"}, {"sku": "10601089", "nombre": "MELAMINA P. CENIZA 19 MM", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601090", "nombre": "MELAMINA P. CENIZA 28 MM", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601091", "nombre": "MELAMINA WENGUE 28 MM", "color": "Wengue", "grosor": "28MM"}, {"sku": "10601092", "nombre": "MELAMINA P. CENIZA 12MM", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601093", "nombre": "MELAMINA WENGUE 12 MM", "color": "Wengue", "grosor": "12MM"}, {"sku": "10601095", "nombre": "MELAMINA P. CENIZA 12MM CARBII", "color": "P. Ceniza", "grosor": "12MM"}, {"sku": "10601096", "nombre": "MELAMINA P. CENIZA 19MM CARBII", "color": "P. Ceniza", "grosor": "19MM"}, {"sku": "10601097", "nombre": "MELAMINA P. CENIZA 28MM CARBII", "color": "P. Ceniza", "grosor": "28MM"}, {"sku": "10601098", "nombre": "MELAMINA NOGAL NEO19 MM CARBII", "color": "Nogal Neo", "grosor": "19MM"}, {"sku": "10601099", "nombre": "MELAMINA P. CENIZA 16 MM", "color": "P. Ceniza", "grosor": "16MM"}, {"sku": "10601100", "nombre": "MELAMINA NUUK SENSE 16 MM", "color": "Nuuk Sense", "grosor": "16MM"}, {"sku": "10601101", "nombre": "MELAMINA GRIS CLARO 19 MM", "color": "Gris Claro", "grosor": "19MM"}, {"sku": "10601102", "nombre": "MELAMINA BLANCO FROSTY 28 MM", "color": "Blanco Frosty", "grosor": "28MM"}, {"sku": "10601104", "nombre": "MELAMINA ANAHUAC 19MM ÉBANO", "color": "Anahuac", "grosor": "19MM"}, {"sku": "10601105", "nombre": "MELAMINA MONARCA 19MM EUCALIPTO", "color": "Monarca", "grosor": "19MM"}, {"sku": "10601106", "nombre": "MELAMINA ENCINO POLAR 19 MM", "color": "Encino Polar", "grosor": "19MM"}, {"sku": "10601107", "nombre": "MELAMINA ENCINO POLAR 28 MM", "color": "Encino Polar", "grosor": "28MM"}, {"sku": "10601108", "nombre": "MELAMINA NEGRA 19MM", "color": "Negra", "grosor": "19MM"}, {"sku": "10601110", "nombre": "MELAMINA SUPERPAN 91B ROBLE RE", "color": "Superpan 91B Roble Re", "grosor": null}, {"sku": "10601111", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601112", "nombre": "MELAMINA SUPERPAN 20N ROBLE SI", "color": "Superpan 20N Roble Si", "grosor": null}, {"sku": "10601113", "nombre": "MELAMINA DURAPLAY BLANCO FROST", "color": "Duraplay Blanco Frost", "grosor": null}, {"sku": "10601116", "nombre": "MELAMINA GRIS CLARO 28 MM", "color": "Gris Claro", "grosor": "28MM"}, {"sku": "10601117", "nombre": "MELAMINA NEGRA DE 12 MM", "color": "Negra De", "grosor": "12MM"}, {"sku": "10601120", "nombre": "MELAMINA IMPORTACION CENIZO", "color": "Importacion Cenizo", "grosor": null}, {"sku": "10601121", "nombre": "MELAMINA NEGRA 28 MM", "color": "Negra", "grosor": "28MM"}, {"sku": "10601122", "nombre": "MELAMINA IMPORTACION CAOBA", "color": "Importacion Caoba", "grosor": null}, {"sku": "10601123", "nombre": "MELAMINA OXFORD 19MM", "color": "Oxford", "grosor": "19MM"}, {"sku": "10601124", "nombre": "MELAMINA ZAFIRO 19MM", "color": "Zafiro", "grosor": "19MM"}, {"sku": "10601125", "nombre": "MELAMINA OXFORD 28MM", "color": "Oxford", "grosor": "28MM"}, {"sku": "10601126", "nombre": "MELAMINA ZAFIRO 28MM", "color": "Zafiro", "grosor": "28MM"}, {"sku": "10601127", "nombre": "MELAMINA OXFORD 12MM", "color": "Oxford", "grosor": "12MM"}, {"sku": "10601128", "nombre": "MELAMINA ZAFIRO 12MM", "color": "Zafiro", "grosor": "12MM"}, {"sku": "10601129", "nombre": "MELAMINA ROBLE MERIDA 19 MM", "color": "Roble Merida", "grosor": "19MM"}, {"sku": "10601130", "nombre": "MELAMINA ROBLE MERIDA 16 MM", "color": "Roble Merida", "grosor": "16MM"}, {"sku": "10601131", "nombre": "MELAMINA ROBLE ETERNITY 28MM", "color": "Roble Eternity", "grosor": "28MM"}, {"sku": "10601132", "nombre": "MELAMINA ROBLE ETERNITY 19MM", "color": "Roble Eternity", "grosor": "19MM"}, {"sku": "10601133", "nombre": "MELAMINA ROBLE TRIGO 28MM", "color": "Roble Trigo", "grosor": "28MM"}, {"sku": "10601134", "nombre": "MELAMINA ROBLE TRIGO 19MM", "color": "Roble Trigo", "grosor": "19MM"}, {"sku": "10601135", "nombre": "MELAMINA ROBLE SINATRA 28MM", "color": "Roble Sinatra", "grosor": "28MM"}, {"sku": "10601136", "nombre": "MELAMINA ROBLE SINATRA 19MM", "color": "Roble Sinatra", "grosor": "19MM"}, {"sku": "10601137", "nombre": "MELAMINA ROBLE SANTANA 28MM", "color": "Roble Santana", "grosor": "28MM"}, {"sku": "10601138", "nombre": "MELAMINA ROBLE SANTANA 19MM", "color": "Roble Santana", "grosor": "19MM"}, {"sku": "10601139", "nombre": "MELAMINA TEKA ARTICO 24MM", "color": "Teka Artico", "grosor": "24MM"}, {"sku": "10601140", "nombre": "MELAMINA NOGAL BRITANICO 28 MM", "color": "Nogal Britanico", "grosor": "28MM"}, {"sku": "10601141", "nombre": "MELAMINA NOGAL BRITANICO 19MM", "color": "Nogal Britanico", "grosor": "19MM"}, {"sku": "10601142", "nombre": "MELAMINA FRESNO BRUMA 19MM", "color": "Fresno Bruma", "grosor": "19MM"}, {"sku": "10601143", "nombre": "MELAMINA NOGAL TERRACOTA 30MM", "color": "Nogal Terracota", "grosor": "30MM"}, {"sku": "10601145", "nombre": "MELAMINA CENIZO TEXTURIZADA 19 MM", "color": "Cenizo Texturizada", "grosor": "19MM"}, {"sku": "10601146", "nombre": "MELAMINA NOGAL TEXTURIZADA 19 MM", "color": "Nogal Texturizada", "grosor": "19MM"}, {"sku": "10601147", "nombre": "MELAMINA NOGAL TEXTURIZADA 28 MM", "color": "Nogal Texturizada", "grosor": "28MM"}, {"sku": "10601148", "nombre": "MELAMINA ROMERO 19 MM", "color": "Romero", "grosor": "19MM"}, {"sku": "10601149", "nombre": "MELAMINA ROMERO 28 MM", "color": "Romero", "grosor": "28MM"}, {"sku": "10601150", "nombre": "MELAMINA TERRA 19 MM", "color": "Terra", "grosor": "19MM"}, {"sku": "10601151", "nombre": "MELAMINA TERRA 28 MM", "color": "Terra", "grosor": "28MM"}, {"sku": "10601152", "nombre": "MELAMINA ROBLE MERIDA 28 MM", "color": "Roble Merida", "grosor": "28MM"}, {"sku": "10601154", "nombre": "MELAMINA ROMERO 12MM", "color": "Romero", "grosor": "12MM"}, {"sku": "10601155", "nombre": "MELAMINA TERRA 12MM", "color": "Terra", "grosor": "12MM"}, {"sku": "10601156", "nombre": "MELAMINA ZAFIRO 16 MM", "color": "Zafiro", "grosor": "16MM"}, {"sku": "10601157", "nombre": "MELAMINA NEGRA 16 MM", "color": "Negra", "grosor": "16MM"}, {"sku": "10601158", "nombre": "MELAMINA VISION 19 MM", "color": "Vision", "grosor": "19MM"}, {"sku": "10601159", "nombre": "MELAMINA OLMO FORESTA 19 MM", "color": "Olmo Foresta", "grosor": "19MM"}, {"sku": "10601160", "nombre": "MELAMINA OLMO FORESTA 28 MM", "color": "Olmo Foresta", "grosor": "28MM"}, {"sku": "10601161", "nombre": "MELAMINA BRAZZAVILLE WENGUE 19 MM", "color": "Brazzaville Wengue", "grosor": "19MM"}, {"sku": "10601162", "nombre": "MELAMINA BRAZZAVILLE WENGUE 28 MM", "color": "Brazzaville Wengue", "grosor": "28MM"}, {"sku": "10601163", "nombre": "MELAMINA ENCINO CALIZA 19 MM", "color": "Encino Caliza", "grosor": "19MM"}, {"sku": "10601164", "nombre": "MELAMINA ENCINO CALIZA 28 MM", "color": "Encino Caliza", "grosor": "28MM"}, {"sku": "10601165", "nombre": "MELAMINA LATTE 19 MM", "color": "Latte", "grosor": "19MM"}, {"sku": "10601166", "nombre": "MELAMINA LATTE 28 MM", "color": "Latte", "grosor": "28MM"}, {"sku": "10602001", "nombre": "MDF 3 MM", "color": "Mdf 3 Mm", "grosor": "3MM"}, {"sku": "10602002", "nombre": "MDF 5.5 MM 122 X 244 CM", "color": "122 X 244 Cm", "grosor": "5.5MM"}, {"sku": "10602003", "nombre": "MDF 5.5 MM MELAMINA ARCE MAPLE", "color": "Arce Maple", "grosor": "5.5MM"}, {"sku": "10602004", "nombre": "MDF 5.5 MM MELAMINA GRAFITO", "color": "Grafito", "grosor": "5.5MM"}, {"sku": "10602006", "nombre": "MDF 5.5 MM MELAMINA GRIS", "color": "Gris", "grosor": "5.5MM"}, {"sku": "10602007", "nombre": "MDF 5.5 MM MELAMINA CEREZO", "color": "Cerezo", "grosor": "5.5MM"}, {"sku": "10602008", "nombre": "MDF 5.5 MM MELAMINA NOGAL NEO", "color": "Nogal Neo", "grosor": "5.5MM"}, {"sku": "10602009", "nombre": "MDF 28 MM MELAMINA BLANCA MATE", "color": "Blanca Mate", "grosor": "28MM"}, {"sku": "10602010", "nombre": "MDF 5.5 MM MELAMINA MONARCA", "color": "Monarca", "grosor": "5.5MM"}, {"sku": "10602011", "nombre": "MDF 5.5 MM MELAMINA BLANCO", "color": "Blanco", "grosor": "5.5MM"}, {"sku": "10602012", "nombre": "MDF 5.5 MM MELAMINA OYAMEL", "color": "Oyamel", "grosor": "5.5MM"}, {"sku": "10602013", "nombre": "MDF 5.5 MM MELAMINA ROBLE TABA", "color": "Roble Taba", "grosor": "5.5MM"}, {"sku": "10602014", "nombre": "MDF 5.5 MM RAYADO 1 CARA", "color": "Rayado 1 Cara", "grosor": "5.5MM"}, {"sku": "10602017", "nombre": "MDF 5.5 MM MELAMINA WENGUE", "color": "Wengue", "grosor": "5.5MM"}, {"sku": "10602018", "nombre": "MDF 5.5 MM MELAMINA PRECOMPUES", "color": "Precompues", "grosor": "5.5MM"}, {"sku": "10602019", "nombre": "MDF 12 MM NATURAL 4 X 8 FT", "color": "Natural 4 X 8 Ft", "grosor": "12MM"}, {"sku": "10602022", "nombre": "MDF ALTO BRILLO BLANCO 18MM", "color": "Mdf Alto Brillo Blanco", "grosor": "18MM"}, {"sku": "10602023", "nombre": "MDF 5.5 MM MELAMINA ANAHUAC", "color": "Anahuac", "grosor": "5.5MM"}, {"sku": "10602036", "nombre": "MDF LAMINADO BLANCO BRILLANTE", "color": "Mdf Laminado Blanco Brillante", "grosor": null}, {"sku": "10602037", "nombre": "MDF 12 MM PINTARRON BLANCO", "color": "Pintarron Blanco", "grosor": "12MM"}, {"sku": "10602038", "nombre": "MDF 5.5 MM MELAMINA ENCINO", "color": "Encino", "grosor": "5.5MM"}, {"sku": "10602039", "nombre": "MDF 5.5 MM MELAMINA CARRARA", "color": "Carrara", "grosor": "5.5MM"}, {"sku": "10602042", "nombre": "LAMINADO PLASTICO BLANCO 18MM MDF", "color": "Blanco", "grosor": "18MM"}, {"sku": "10602043", "nombre": "LAMINADO PLASTICO BLANCO 25MM MDF", "color": "Blanco", "grosor": "25MM"}, {"sku": "10602049", "nombre": "LAMINADO PLASTICO ROJO 18MM MDF", "color": "Rojo", "grosor": "18MM"}, {"sku": "10602050", "nombre": "MDF 5.5 MM MELAMINA ROBLE ETERNITY", "color": "Roble Eternity", "grosor": "5.5MM"}, {"sku": "10602051", "nombre": "MDF 5.5 MM MELAMINA ROBLE TRIGO", "color": "Roble Trigo", "grosor": "5.5MM"}, {"sku": "10602052", "nombre": "MDF 5.5 MM MELAMINA ROBLE SINATRA", "color": "Roble Sinatra", "grosor": "5.5MM"}, {"sku": "10602053", "nombre": "MDF 5.5 MM MELAMINA NEGRA", "color": "Negra", "grosor": "5.5MM"}, {"sku": "10602054", "nombre": "MDF 5.5 MM MELAMINA ZAFIRO", "color": "Zafiro", "grosor": "5.5MM"}, {"sku": "10602055", "nombre": "MDF 18 MM NATURAL 4 X 8 FT", "color": "Natural 4 X 8 Ft", "grosor": "18MM"}, {"sku": "10602056", "nombre": "LAMINADO PLASTICO GRIS 18MM MDF", "color": "Gris", "grosor": "18MM"}, {"sku": "10602063", "nombre": "MDF 5.5 MM MELAMINA ROBLE MERIDA", "color": "Roble Merida", "grosor": "5.5MM"}, {"sku": "10602064", "nombre": "MDF 19 MM MELAMINA PRECOMPUESTO CENIZA", "color": "Precompuesto Ceniza", "grosor": "19MM"}, {"sku": "10602065", "nombre": "MDF 19 MM MELAMINA MONARCA", "color": "Monarca", "grosor": "19MM"}, {"sku": "10602066", "nombre": "MDF 19 MM MELAMINA ENCINO POLAR", "color": "Encino Polar", "grosor": "19MM"}, {"sku": "10602067", "nombre": "MDF 5.5 MM MELAMINA OXFORD", "color": "Oxford", "grosor": "5.5MM"}, {"sku": "10602068", "nombre": "MDF 5.5 MM MELAMINA ROMERO", "color": "Romero", "grosor": "5.5MM"}, {"sku": "10602069", "nombre": "MDF 5.5 MM MELAMINA TERRA", "color": "Terra", "grosor": "5.5MM"}, {"sku": "10602070", "nombre": "MDF 15 MM NATURAL 4 X 8 FT", "color": "Natural 4 X 8 Ft", "grosor": "15MM"}, {"sku": "10602071", "nombre": "MDF 5.5 MM MELAMINA OLMO FORESTA", "color": "Olmo Foresta", "grosor": "5.5MM"}, {"sku": "10602072", "nombre": "MDF 5.5 MM MELAMINA CONCRETO OBSCURO", "color": "Concreto Obscuro", "grosor": "5.5MM"}, {"sku": "10602073", "nombre": "MDF 5.5 MM MELAMINA BRAZZAVILLE WENGUE", "color": "Brazzaville Wengue", "grosor": "5.5MM"}, {"sku": "10602090", "nombre": "MDF 5.5 MM MELAMINA ENCINO CALIZA", "color": "Encino Caliza", "grosor": "5.5MM"}, {"sku": "10604002", "nombre": "MDF 5.5 MM PROTOTIPOS DE 122 X 244 CM", "color": "Prototipos De 122 X 244 Cm", "grosor": "5.5MM"}];
 
 // Busca en el catálogo por color + grosor (tolerante a variaciones)
 function buscarMelamina(color, grosor){
@@ -3368,6 +3410,87 @@ function sortFechas(arr){
     return da-db;
   });
 }
+
+
+// ═══════════ CALCULADORA LATERAL ═══════════
+let calcPieces = [{a:'',h:'',qty:1}];
+
+function togCalc(){
+  const panel = document.getElementById('calc-panel');
+  const icon  = document.getElementById('calc-icon');
+  if(!panel) return;
+  panel.classList.toggle('collapsed');
+  const collapsed = panel.classList.contains('collapsed');
+  if(icon) icon.className = collapsed ? 'ti ti-calculator' : 'ti ti-chevron-right';
+}
+
+function calcRender(){
+  const cont = document.getElementById('calc-pieces'); if(!cont) return;
+  cont.innerHTML = '';
+  calcPieces.forEach((p,i)=>{
+    const row = document.createElement('div');
+    row.className = 'calc-piece-row';
+    row.innerHTML =
+      '<input type="number" placeholder="Ancho" min="1" value="'+(p.a||'')+'" oninput="calcPieces['+i+'].a=this.value;calcUpdate()" style="font-size:14px;padding:7px 4px;">'+
+      '<span style="font-size:12px;color:var(--text3);font-weight:600;">×</span>'+
+      '<input type="number" placeholder="Alto" min="1" value="'+(p.h||'')+'" oninput="calcPieces['+i+'].h=this.value;calcUpdate()" style="font-size:14px;padding:7px 4px;">'+
+      '<input type="number" placeholder="#" min="1" value="'+(p.qty||1)+'" oninput="calcPieces['+i+'].qty=parseInt(this.value)||1;calcUpdate()" style="width:44px;font-size:14px;padding:7px 4px;" title="Cantidad">'+
+      '<span class="piece-pct" id="calc-p'+i+'">—</span>'+
+      (calcPieces.length>1?'<button onclick="calcRemove('+i+')" style="font-size:11px;padding:2px 5px;border:none;background:transparent;cursor:pointer;color:var(--text3);" title="Quitar"><i class="ti ti-x"></i></button>':'<span style="width:18px;"></span>');
+    cont.appendChild(row);
+  });
+  calcUpdate();
+}
+
+function calcAddPiece(){
+  calcPieces.push({a:'',h:'',qty:1});
+  calcRender();
+}
+
+function calcRemove(i){
+  calcPieces.splice(i,1);
+  calcRender();
+}
+
+function calcUpdate(){
+  const hA = parseFloat(document.getElementById('calc-hoja-a')?.value)||244;
+  const hH = parseFloat(document.getElementById('calc-hoja-h')?.value)||122;
+  const hojaArea = hA * hH;
+  if(hojaArea <= 0) return;
+
+  let totalPct = 0;
+  calcPieces.forEach((p,i)=>{
+    const a   = parseFloat(p.a)||0;
+    const h   = parseFloat(p.h)||0;
+    const qty = parseInt(p.qty)||1;
+    const el  = document.getElementById('calc-p'+i);
+    if(a>0 && h>0){
+      const pct = (a*h*qty)/hojaArea*100;
+      totalPct += pct;
+      if(el) el.textContent = pct.toFixed(1)+'%';
+    } else {
+      if(el) el.textContent = '—';
+    }
+  });
+
+  const totDiv  = document.getElementById('calc-totals');
+  const fill    = document.getElementById('calc-fill');
+  const lbl     = document.getElementById('calc-total-lbl');
+  const hasDat  = calcPieces.some(p=>parseFloat(p.a)>0 && parseFloat(p.h)>0);
+
+  if(hasDat && totDiv){
+    totDiv.style.display = 'block';
+    const pct  = Math.min(200, totalPct);
+    const color= totalPct>110?'var(--red-t)':totalPct>90?'var(--amber-t)':'var(--green-t)';
+    if(fill){ fill.style.width=Math.min(100,pct)+'%'; fill.style.background=color; }
+    if(lbl)   lbl.style.color=color, lbl.textContent='Total: '+totalPct.toFixed(1)+'% de la hoja'+(totalPct>100?' ⚠ supera la hoja':'');
+  } else if(totDiv){
+    totDiv.style.display='none';
+  }
+}
+
+// Inicializar calculadora al cargar
+window.addEventListener('load', ()=>{ calcRender(); });
 
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
@@ -4252,5 +4375,75 @@ rAreas();
 
 
 </script>
+
+<!-- CALCULADORA LATERAL -->
+<div class="calc-panel collapsed" id="calc-panel">
+  <div class="calc-toggle" onclick="togCalc()" title="Calculadora de piezas">
+    <i class="ti ti-calculator" id="calc-icon"></i>
+  </div>
+  <div class="calc-body">
+    <div class="calc-title"><i class="ti ti-calculator" style="font-size:13px;"></i> Calculadora</div>
+
+    <!-- Medidas de la hoja fijas -->
+    <div style="background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;padding:7px 10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:11px;color:var(--text2);">Hoja estándar</span>
+      <span style="font-size:13px;font-weight:600;font-family:monospace;color:var(--text);">244 × 122 cm</span>
+    </div>
+    <!-- Valores ocultos para el cálculo -->
+    <input type="hidden" id="calc-hoja-a" value="244">
+    <input type="hidden" id="calc-hoja-h" value="122">
+
+    <!-- Piezas -->
+    <p style="font-size:10px;color:var(--text3);font-family:monospace;margin-bottom:4px;margin-top:8px;">PIEZAS (cm)</p>
+    <div class="calc-pieces" id="calc-pieces">
+      <!-- filas dinámicas -->
+    </div>
+    <button onclick="calcAddPiece()" style="width:100%;font-size:11px;padding:5px;border:0.5px dashed var(--border2);border-radius:6px;cursor:pointer;background:transparent;color:var(--text3);margin-top:4px;">
+      <i class="ti ti-plus" style="font-size:11px;vertical-align:-1px;"></i> Agregar pieza
+    </button>
+
+    <!-- Totales -->
+    <div id="calc-totals" style="margin-top:10px;display:none;">
+      <div class="calc-total-bar"><div class="calc-total-fill" id="calc-fill"></div></div>
+      <div class="calc-total-lbl" id="calc-total-lbl"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- CALCULADORA LATERAL -->
+<div class="calc-panel collapsed" id="calc-panel">
+  <div class="calc-toggle" onclick="togCalc()" title="Calculadora de piezas">
+    <i class="ti ti-calculator" id="calc-icon"></i>
+  </div>
+  <div class="calc-body">
+    <div class="calc-title"><i class="ti ti-calculator" style="font-size:13px;"></i> Calculadora</div>
+
+    <!-- Medidas de la hoja fijas -->
+    <div style="background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;padding:7px 10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:11px;color:var(--text2);">Hoja estándar</span>
+      <span style="font-size:13px;font-weight:600;font-family:monospace;color:var(--text);">244 × 122 cm</span>
+    </div>
+    <!-- Valores ocultos para el cálculo -->
+    <input type="hidden" id="calc-hoja-a" value="244">
+    <input type="hidden" id="calc-hoja-h" value="122">
+
+    <!-- Piezas -->
+    <p style="font-size:10px;color:var(--text3);font-family:monospace;margin-bottom:4px;margin-top:8px;">PIEZAS (cm)</p>
+    <div class="calc-pieces" id="calc-pieces">
+      <!-- filas dinámicas -->
+    </div>
+    <button onclick="calcAddPiece()" style="width:100%;font-size:11px;padding:5px;border:0.5px dashed var(--border2);border-radius:6px;cursor:pointer;background:transparent;color:var(--text3);margin-top:4px;">
+      <i class="ti ti-plus" style="font-size:11px;vertical-align:-1px;"></i> Agregar pieza
+    </button>
+
+    <!-- Totales -->
+    <div id="calc-totals" style="margin-top:10px;display:none;">
+      <div class="calc-total-bar"><div class="calc-total-fill" id="calc-fill"></div></div>
+      <div class="calc-total-lbl" id="calc-total-lbl"></div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
