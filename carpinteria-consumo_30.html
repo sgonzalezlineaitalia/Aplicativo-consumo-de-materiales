@@ -594,10 +594,10 @@ tr:hover td{background:var(--bg3);}
   border-left:none;border-radius:12px 0 0 12px;
   box-shadow:-4px 0 20px rgba(0,0,0,.08);
   z-index:50;transition:right .25s ease;
-  display:none; /* oculto por defecto, solo visible en paso 3 */
+  display:none;
 }
 .calc-panel.open{ display:block; }
-.calc-panel.collapsed{ right:-246px; }
+.calc-panel.open.collapsed{ right:-246px; }
 .calc-toggle{
   position:absolute;left:-34px;top:50%;transform:translateY(-50%);
   width:34px;height:56px;background:var(--blue-bg);border:0.5px solid var(--blue);
@@ -1196,7 +1196,13 @@ if(!DB.stockPiezas) DB.stockPiezas = [
 ];
 
 // ═══════════ UTILIDADES ═══════════
-function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  // Ocultar calculadora al cambiar de pantalla
+  const calc=document.getElementById('calc-panel');
+  if(calc) calc.classList.remove('open','collapsed');
+}
 function logout(){ cUser=null; cArea=null; cMaq=null; rAreas(); show('screen-login'); }
 function cambiarMaq(){ rMaqs(); show('screen-maquina'); }
 function showStep(id){
@@ -1283,6 +1289,24 @@ function confirmarMaq(){
 function stag(g,el){ osg=g; document.querySelectorAll('#tag-todos,#tag-todos ~ .otag').forEach(t=>t.classList.remove('active')); el.classList.add('active'); fops(); }
 function sfecha(f){ osfecha=f; fops(); }
 
+function fechaMasCercana(fechas){
+  // Devuelve la fecha más cercana a hoy (la de hoy si existe, o la siguiente futura más próxima,
+  // o si no hay futuras, la más reciente pasada)
+  const hoy = new Date();
+  hoy.setHours(0,0,0,0);
+  let mejor = null, mejorDif = Infinity;
+  fechas.forEach(f=>{
+    const p=f.split('/');
+    if(p.length<3) return;
+    const d=new Date(+p[2],+p[1]-1,+p[0]);
+    const dif=d-hoy; // positivo=futuro, negativo=pasado
+    // Priorizar fechas de hoy o futuras; si no hay, la más reciente pasada
+    const score = dif>=0 ? dif : Math.abs(dif)+9999999;
+    if(score<mejorDif){ mejorDif=score; mejor=f; }
+  });
+  return mejor;
+}
+
 function rFechaTags(){
   const cont = document.getElementById('fecha-tags');
   const sel  = document.getElementById('sel-fecha');
@@ -1293,10 +1317,14 @@ function rFechaTags(){
   )]);
   if(!fechas.length){ cont.style.display='none'; return; }
   cont.style.display='block';
-  const cur = sel.value;
+  // Si no hay fecha seleccionada, pre-seleccionar la más cercana a hoy
+  const cur = sel.value || (!osfecha ? fechaMasCercana(fechas) : '');
   sel.innerHTML = '<option value="">Todos los días</option>' +
     fechas.map(f=>'<option value="'+f+'"'+(f===cur?' selected':'')+'>'+f+'</option>').join('');
-  if(cur && fechas.includes(cur)) sel.value=cur;
+  if(cur && fechas.includes(cur)){
+    sel.value = cur;
+    if(!osfecha){ osfecha = cur; } // aplicar el filtro automáticamente
+  }
 }
 function normGrosor(g){ return (g||'').toString().toLowerCase().replace(/\s+/g,''); }
 function fops(){
@@ -1460,6 +1488,10 @@ function addLam(){
     '<div class="lfracs" id="lfracs'+lid+'">'+
       [['⅛ 12%',0.125],['¼ 25%',0.25],['⅓ 33%',0.333],['½ 50%',0.5],['⅔ 67%',0.667],['¾ 75%',0.75],['⅞ 87%',0.875],['Completa',1.0]]
         .map(([lbl,val])=>'<button class="lfrac" onclick="setFrac('+lid+','+val+')">'+lbl+'</button>').join('')+
+      '<div style="display:inline-flex;align-items:center;gap:3px;margin-left:2px;">'+
+        '<input type="number" id="frac-custom-'+lid+'" min="1" max="100" placeholder="%" style="width:48px;padding:3px 5px;font-size:12px;border:0.5px solid var(--border2);border-radius:5px;background:var(--bg2);text-align:center;font-family:monospace;">'+
+        '<button class="lfrac" style="background:var(--blue-bg);color:var(--blue-t);border-color:var(--blue);" onclick="setFracCustom('+lid+')">✓</button>'+
+      '</div>'+
     '</div>'+
     '<div style="margin-top:8px;">'+
       '<button id="cbtn'+lid+'" onclick="togComp('+lid+')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;background:var(--bg2);color:var(--text2);">'+
@@ -1540,6 +1572,15 @@ function primerXLibre(lid, w){
   return -1; // no hay espacio
 }
 
+function setFracCustom(lid){
+  const inp = document.getElementById('frac-custom-'+lid);
+  if(!inp) return;
+  const pct = parseFloat(inp.value);
+  if(isNaN(pct)||pct<=0||pct>100){ inp.style.borderColor='var(--red)'; return; }
+  inp.style.borderColor='var(--border2)';
+  inp.value='';
+  setFrac(lid, pct/100);
+}
 function setFrac(lid,val){
   const lam=GL(lid);if(!lam||!lam.opActual)return;
   const w=MLW*val, h=MLH;
@@ -4377,38 +4418,7 @@ rAreas();
 </script>
 
 <!-- CALCULADORA LATERAL -->
-<div class="calc-panel collapsed" id="calc-panel">
-  <div class="calc-toggle" onclick="togCalc()" title="Calculadora de piezas">
-    <i class="ti ti-calculator" id="calc-icon"></i>
-  </div>
-  <div class="calc-body">
-    <div class="calc-title"><i class="ti ti-calculator" style="font-size:13px;"></i> Calculadora</div>
 
-    <!-- Medidas de la hoja fijas -->
-    <div style="background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;padding:7px 10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
-      <span style="font-size:11px;color:var(--text2);">Hoja estándar</span>
-      <span style="font-size:13px;font-weight:600;font-family:monospace;color:var(--text);">244 × 122 cm</span>
-    </div>
-    <!-- Valores ocultos para el cálculo -->
-    <input type="hidden" id="calc-hoja-a" value="244">
-    <input type="hidden" id="calc-hoja-h" value="122">
-
-    <!-- Piezas -->
-    <p style="font-size:10px;color:var(--text3);font-family:monospace;margin-bottom:4px;margin-top:8px;">PIEZAS (cm)</p>
-    <div class="calc-pieces" id="calc-pieces">
-      <!-- filas dinámicas -->
-    </div>
-    <button onclick="calcAddPiece()" style="width:100%;font-size:11px;padding:5px;border:0.5px dashed var(--border2);border-radius:6px;cursor:pointer;background:transparent;color:var(--text3);margin-top:4px;">
-      <i class="ti ti-plus" style="font-size:11px;vertical-align:-1px;"></i> Agregar pieza
-    </button>
-
-    <!-- Totales -->
-    <div id="calc-totals" style="margin-top:10px;display:none;">
-      <div class="calc-total-bar"><div class="calc-total-fill" id="calc-fill"></div></div>
-      <div class="calc-total-lbl" id="calc-total-lbl"></div>
-    </div>
-  </div>
-</div>
 
 
 <!-- CALCULADORA LATERAL -->
