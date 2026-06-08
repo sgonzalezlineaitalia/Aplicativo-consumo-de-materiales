@@ -112,8 +112,9 @@ window.fbGuardarArea = async function(area) {
 // ─── Guardar usuario en Firestore ───
 window.fbGuardarUsuario = async function(usr) {
   try {
-    const id = usr.nombre.replace(/\s+/g,'_').toLowerCase();
-    await setDoc(doc(db, "usuarios", id), usr);
+    const id = usr.nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                         .replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+    await setDoc(doc(db, "usuarios", id), {...usr, _id: id});
   } catch(e) { console.error("Error guardando usuario:", e); }
 };
 
@@ -140,12 +141,24 @@ window.fbCargarConfig = async function() {
       });
     }
     if(usrsSnap.docs.length > 0){
-      const fbUsuarios = usrsSnap.docs.map(d => d.data());
-      // Combinar: agregar los de Firebase que no estén ya en DB.usuarios (por nombre)
-      fbUsuarios.forEach(u => {
-        if(!DB.usuarios.find(x => x.nombre === u.nombre)) DB.usuarios.push(u);
+      // Firebase es la fuente de verdad — reemplazar y deduplicar por nombre
+      const seen = new Set();
+      DB.usuarios = usrsSnap.docs.map(d => d.data()).filter(u => {
+        const key = u.nombre.trim().toLowerCase();
+        if(seen.has(key)) return false;
+        seen.add(key); return true;
       });
+    } else if(typeof fbGuardarUsuario === 'function'){
+      // Primera vez: subir operarios iniciales si Firebase está vacío
+      const iniciales = [
+        {nombre:'Raquel Perez',  area:'carpinteria'},
+        {nombre:'Jose Rodriguez',area:'carpinteria'},
+        {nombre:'Joel Casillas', area:'carpinteria'},
+      ];
+      iniciales.forEach(u => { DB.usuarios.push(u); fbGuardarUsuario(u).catch(console.error); });
     }
+    if(typeof rAreas==='function') rAreas();
+    if(typeof rUsers==='function') rUsers();
   } catch(e) { console.error("Error cargando config:", e); }
 };
 
@@ -228,16 +241,15 @@ window.fbInit = async function() {
     });
     onSnapshot(collection(db, "usuarios"), (snap) => {
       if(window.fbPaused) return;
-      if(snap.docs.length > 0){
-        const fbUsuarios = snap.docs.map(d => d.data());
-        // Merge: no reemplazar hardcodeados, agregar/actualizar los de Firebase
-        fbUsuarios.forEach(u => {
-          const idx = DB.usuarios.findIndex(x => x.nombre === u.nombre);
-          if(idx >= 0) DB.usuarios[idx] = u; else DB.usuarios.push(u);
-        });
-        if(typeof rUsers === 'function') rUsers();
-        if(typeof rUsrTab === 'function') rUsrTab();
-      }
+      // Firebase es la fuente de verdad — reemplazar y deduplicar por nombre
+      const seen = new Set();
+      DB.usuarios = snap.docs.map(d => d.data()).filter(u => {
+        const key = u.nombre.trim().toLowerCase();
+        if(seen.has(key)) return false;
+        seen.add(key); return true;
+      });
+      if(typeof rUsers === 'function') rUsers();
+      if(typeof rUsrTab === 'function') rUsrTab();
     });
     onSnapshot(collection(db, "areas"), (snap) => {
       if(window.fbPaused) return;
@@ -829,7 +841,7 @@ tr:hover td{background:var(--bg3);}
             <select id="fest" onchange="rReg()"><option value="">Todos</option><option value="ok">Registrados</option><option value="pend">Pendientes</option><option value="rec">Re-cortes</option></select>
             <select id="fmaq" onchange="rReg()"><option value="">Todas las máquinas</option></select>
           </div>
-          <div class="dtw"><table><thead><tr><th>OP</th><th>Modelo·Color·Grosor</th><th>Material</th><th>Hojas</th><th>Reut.</th><th>Sob.</th><th>Máquina</th><th>Tipo</th><th>Estado</th><th>Justificación</th><th>Mapa</th><th></th></tr></thead><tbody id="treg"></tbody></table></div>
+          <div class="dtw"><table><thead><tr><th>OP</th><th>Registrado</th><th>Modelo·Color·Grosor</th><th>Material</th><th>Hojas</th><th>Reut.</th><th>Sob.</th><th>Máquina</th><th>Tipo</th><th>Estado</th><th>Justificación</th><th>Mapa</th><th></th></tr></thead><tbody id="treg"></tbody></table></div>
         </div>
         <div class="stab" id="t-planif">
           <p class="ptitle">Planificación</p><p class="psub">OPs cargadas con avance en tiempo real</p>
@@ -1023,6 +1035,7 @@ tr:hover td{background:var(--bg3);}
               <div><label class="lbl">Área</label><select id="susrarea"></select></div>
             </div>
             <button class="btn btn-amber" onclick="aUsr()"><i class="ti ti-plus"></i> Agregar</button>
+          <button class="btn btn-ghost btn-sm" onclick="limpiarDuplicadosFirebase()" style="margin-left:8px;" title="Eliminar duplicados de Firebase"><i class="ti ti-refresh"></i> Limpiar duplicados</button>
           </div>
         </div>
 
@@ -1173,11 +1186,7 @@ const DB = {
     {id:'carpinteria',nombre:'Carpintería',icon:'ti-armchair',desc:'Corte y fabricación',maquinas:['Sellex','Gabbiani','Blue Elephant']},
     {id:'laser',nombre:'Corte Láser',icon:'ti-vector-bezier-2',desc:'Grabado y corte',maquinas:['Blue Elephant']},
   ],
-  usuarios: [
-    {nombre:'Raquel Perez',  area:'carpinteria'},
-    {nombre:'Jose Rodriguez',area:'carpinteria'},
-    {nombre:'Joel Casillas', area:'carpinteria'},
-  ],
+  usuarios: [], // Los operarios viven en Firebase, no hardcodeados
   ops: [],
   registros: [],
 };
@@ -1386,7 +1395,7 @@ function confirmarSinOP(){
 // ═══════════ S2: TIPO + MATERIAL ═══════════
 function irS2(){
   document.getElementById('s2op').textContent=cOP.sinAsignar?'Sin OP · Mod.'+cOP.modelo+' '+cOP.color:cOP.op+' — '+cOP.sku;
-  document.getElementById('s2det').textContent='Mod.'+cOP.modelo+' · '+cOP.color+' · '+cOP.grosor+' · '+cOP.cantidad+' uds';
+  document.getElementById('s2det').textContent=cOP.modelo+' · '+cOP.color+' · '+cOP.grosor+' · '+cOP.cantidad+' uds';
   stipo('normal'); rMatList(); showStep('s2');
 }
 function stipo(t){
@@ -1460,7 +1469,7 @@ function getLamCol(lid,opKey){
 }
 function addLam(){
   const lid=++cLCnt;
-  cLams[lid]={zonas:[],opActual:{opKey:cOP.op,label:'Mod.'+cOP.modelo+' '+cOP.color,tipo:'op'},
+  cLams[lid]={zonas:[],opActual:{opKey:cOP.op,label:cOP.modelo,tipo:'op'},
     drag:false,sx:0,sy:0,ex:0,ey:0,tipoLam:'nueva',mComp:false,cm:{}};
   const cont=document.getElementById('lwcont'); if(!cont) return;
   const w=document.createElement('div'); w.id='lw'+lid; w.className='lw';
@@ -1482,7 +1491,7 @@ function addLam(){
       '<canvas id="cv'+lid+'" class="lcanvas" width="'+MLW+'" height="'+MLH+'"></canvas>'+
     '</div>'+
     '<div class="fb" style="margin-bottom:6px;">'+
-      '<span style="font-size:12px;font-family:monospace;color:var(--text2);" id="inst'+lid+'">Dibujando <strong style="color:var(--amber-t);">'+cOP.op+' · Mod.'+cOP.modelo+' '+cOP.color+'</strong> — arrastrá o usá los atajos</span>'+
+      '<span style="font-size:12px;font-family:monospace;color:var(--text2);" id="inst'+lid+'">Dibujando <strong style="color:var(--amber-t);">'+cOP.op+' · '+cOP.modelo+'</strong> — arrastrá o usá los atajos</span>'+
       '<span style="font-size:11px;font-family:monospace;color:var(--text3);">Libre: <strong id="free'+lid+'">100%</strong></span>'+
     '</div>'+
     '<div class="lfracs" id="lfracs'+lid+'">'+
@@ -1610,7 +1619,7 @@ function togComp(lid){
     setTimeout(()=>fComp(lid),50);
   } else {
     if(btn)btn.style.cssText='font-size:12px;padding:5px 12px;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;background:var(--bg2);color:var(--text2);';
-    lam.opActual={opKey:cOP.op,label:'Mod.'+cOP.modelo+' '+cOP.color,tipo:'op'};
+    lam.opActual={opKey:cOP.op,label:cOP.modelo,tipo:'op'};
     const inst=document.getElementById('inst'+lid);if(inst)inst.innerHTML='Dibujando <strong style="color:var(--amber-t);">'+cOP.op+'</strong>';
     updLeg(lid);
   }
@@ -1638,9 +1647,9 @@ function fComp(lid){
 function selCOP(lid,opId){
   const op=DB.ops.find(o=>o.op===opId);if(!op)return;
   const lam=GL(lid);if(!lam)return;
-  lam.opActual={opKey:op.op,label:'Mod.'+op.modelo+' '+op.color,tipo:'op'};
+  lam.opActual={opKey:op.op,label:op.modelo,tipo:'op'};
   const cf=document.getElementById('cf'+lid);
-  if(cf){cf.textContent='✓ '+op.op+' · Mod.'+op.modelo+' '+op.color+' — dibujá su zona';cf.style.display='block';}
+  if(cf){cf.textContent='✓ '+op.op+' · '+op.modelo+' — dibujá su zona';cf.style.display='block';}
   const inst=document.getElementById('inst'+lid);
   if(inst)inst.innerHTML='Dibujando <strong style="color:var(--amber-t);">'+op.op+'</strong>';
   // Mostrar botón "Usar el resto" si hay espacio libre
@@ -1795,11 +1804,11 @@ function selLeg(lid,opKey){
   const lam=GL(lid);if(!lam)return;
   if(opKey==='sobrante'){setSob(lid);return;}
   if(opKey===cOP.op){
-    lam.opActual={opKey:cOP.op,label:'Mod.'+cOP.modelo+' '+cOP.color,tipo:'op'};
+    lam.opActual={opKey:cOP.op,label:cOP.modelo,tipo:'op'};
     const inst=document.getElementById('inst'+lid);if(inst)inst.innerHTML='Dibujando <strong style="color:var(--amber-t);">'+cOP.op+'</strong>';
   } else {
     const op=DB.ops.find(o=>o.op===opKey);
-    if(op)lam.opActual={opKey,label:'Mod.'+op.modelo+' '+op.color,tipo:'op'};
+    if(op)lam.opActual={opKey,label:op.modelo,tipo:'op'};
     const inst=document.getElementById('inst'+lid);if(inst)inst.innerHTML='Dibujando <strong style="color:var(--amber-t);">'+opKey+'</strong>';
   }
   updLeg(lid);
@@ -1839,7 +1848,14 @@ function drawLam(lid){
     ctx.beginPath();ctx.roundRect(z.x,z.y,z.w,z.h,4);ctx.fill();ctx.stroke();
     if(z.w>44&&z.h>18){
       ctx.fillStyle='#fff';ctx.font='600 11px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillText((z.tipo==='sobrante'?'Sob.':z.opKey)+' '+((z.w*z.h)/MLA*100).toFixed(0)+'%',z.x+z.w/2,z.y+z.h/2);
+      const lblBase = z.tipo==='sobrante'?'Sob.':z.tipo==='stock'?(z.label||'Stock'):(z.opKey+(z.label?' · '+z.label:''));
+      const pctTxt  = ((z.w*z.h)/MLA*100).toFixed(0)+'%';
+      if(z.w>80&&z.h>30){
+        ctx.fillText(lblBase,z.x+z.w/2,z.y+z.h/2-6);
+        ctx.fillText(pctTxt, z.x+z.w/2,z.y+z.h/2+8);
+      } else {
+        ctx.fillText(pctTxt, z.x+z.w/2,z.y+z.h/2);
+      }
     }
   });
   const bc=lam.tipoLam==='reut'?'#D97706':'#CDD1D9';
@@ -1872,7 +1888,7 @@ function updLRes(lid){
 function updLeg(lid){
   const lam=GL(lid);if(!lam)return;
   const seen=new Set([cOP.op]);
-  const items=[{opKey:cOP.op,label:'Mod.'+cOP.modelo+' '+cOP.color,tipo:'op'}];
+  const items=[{opKey:cOP.op,label:cOP.modelo,tipo:'op'}];
   lam.zonas.forEach(z=>{if(!seen.has(z.opKey)){seen.add(z.opKey);items.push(z);}});
   const el=document.getElementById('leg'+lid);if(!el)return; el.innerHTML='';
   items.forEach(z=>{
@@ -1974,6 +1990,7 @@ function guardarSinJustif(){
 function _ejecutarGuardar(justif){
   const motivo=cTipo==='recorte'?(document.getElementById('rmt').value==='Otro'?document.getElementById('rotrotxt').value:document.getElementById('rmt').value):'';
   const fecha=new Date().toLocaleDateString('es-CL');
+  const fechaRegistro=new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
   const m=cOP.materiales[cMatIdx];
   // Serializar láminas para guardar el mapa visual
   const laminasGuardadas = Object.keys(cLams).map(lid=>{
@@ -1991,6 +2008,7 @@ function _ejecutarGuardar(justif){
 
   const reg={area:cArea.id,op:cOP.op,modelo:cOP.modelo,color:cOP.color,grosor:cOP.grosor,sku:cOP.sku,
     operario:cUser,maquina:cMaq,tipo:cTipo,motivo,sinAsignar:cOP.sinAsignar||false,obs:cOP.obs||'',
+    fechaRegistro,
     justifDif:justif||'',
     laminas: laminasGuardadas,
     materiales:[{nombre:m.nombre,skuMat:m.skuMat,hojas:cCons.hojas,sobrante:cCons.sobrante,reutilizado:cCons.reutilizado||0,planificado:m.planificado}],fecha};
@@ -3533,6 +3551,35 @@ function calcUpdate(){
 // Inicializar calculadora al cargar
 window.addEventListener('load', ()=>{ calcRender(); });
 
+
+function limpiarDuplicadosFirebase(){
+  if(!confirm('Esto va a borrar TODOS los operarios de Firebase y reescribir solo los que están en pantalla ahora.\n\n¿Continuar?')) return;
+  window._limpiarDups = async function(){
+    try{
+      // 1. Obtener todos los docs actuales y borrarlos
+      const snap = await getDocs(collection(db, 'usuarios'));
+      for(const d of snap.docs){
+        await deleteDoc(doc(db, 'usuarios', d.id));
+      }
+      // 2. Reescribir solo los que están en DB.usuarios ahora (los que el supervisor ve)
+      // Deduplicar por nombre antes de subir
+      const seen = new Set();
+      let subidos = 0;
+      for(const u of DB.usuarios){
+        const key = u.nombre.trim().toLowerCase();
+        if(seen.has(key)) continue;
+        seen.add(key);
+        const id = u.nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                           .replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+        await setDoc(doc(db, 'usuarios', id), {...u, _id: id});
+        subidos++;
+      }
+      alert('✓ Listo. Firebase reescrito con ' + subidos + ' operario' + (subidos!==1?'s':'') + '.');
+    }catch(e){ alert('Error: '+e.message); }
+  };
+  window._limpiarDups();
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -3631,8 +3678,9 @@ function rReg(){
       const del=mi===0?'<button class="btn btn-red btn-sm" onclick="abrirMR('+ri+')" style="opacity:.5;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5"><i class="ti ti-trash"></i></button>':'';
       rows.push('<tr>'+
         '<td><span class="badge b-op">'+r.op+'</span>'+(r.sinAsignar?'<br><span class="badge b-sinop" style="font-size:9px;">sin OP</span>':'')+
-        '<br><span style="font-size:11px;color:var(--text2);">'+r.operario+' · '+r.fecha+'</span>'+
+        '<br><span style="font-size:11px;color:var(--text2);">'+r.operario+'</span>'+
         '<br><span style="font-size:10px;color:var(--text3);font-family:monospace;">'+an+'</span></td>'+
+        '<td style="font-size:11px;font-family:monospace;color:var(--text2);white-space:nowrap;">'+(r.fechaRegistro||r.fecha||'—')+'</td>'+
         '<td style="font-family:monospace;font-size:12px;">'+r.modelo+'<br><span style="color:var(--text2);">'+r.color+' · '+r.grosor+'</span></td>'+
         '<td>'+m.nombre+'<br><span style="font-family:monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
         '<td style="font-family:monospace;color:var(--amber-t);">'+(m.hojas||0).toFixed(2)+'</td>'+
@@ -4020,11 +4068,11 @@ function rUsrTab(){
 function aUsr(){
   const n=document.getElementById('iusr').value.trim();const a=document.getElementById('susrarea').value;
   if(!n||!a){alert('Completa nombre y área');return;}
-  if(DB.usuarios.find(u=>u.nombre===n)){alert('Ya existe');return;}
+  if(DB.usuarios.find(u=>u.nombre.trim().toLowerCase()===n.trim().toLowerCase())){alert('Ya existe');return;}
   const usr={nombre:n,area:a};
   DB.usuarios.push(usr);document.getElementById('iusr').value='';
   if(typeof fbGuardarUsuario==='function'){
-    DB.usuarios.forEach(u=>fbGuardarUsuario(u).catch(console.error));
+    fbGuardarUsuario(usr).catch(console.error);
   }
   rUsrTab();
   if(typeof rUsers==='function') rUsers();
