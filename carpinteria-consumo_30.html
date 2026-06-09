@@ -23,6 +23,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+window.db = db; // Exponer para acceso desde script principal
 
 // ─── Guardar registro en Firestore ───
 window.fbGuardar = async function(registro) {
@@ -3552,32 +3553,30 @@ function calcUpdate(){
 window.addEventListener('load', ()=>{ calcRender(); });
 
 
-function limpiarDuplicadosFirebase(){
-  if(!confirm('Esto va a borrar TODOS los operarios de Firebase y reescribir solo los que están en pantalla ahora.\n\n¿Continuar?')) return;
-  window._limpiarDups = async function(){
-    try{
-      // 1. Obtener todos los docs actuales y borrarlos
-      const snap = await getDocs(collection(db, 'usuarios'));
-      for(const d of snap.docs){
-        await deleteDoc(doc(db, 'usuarios', d.id));
-      }
-      // 2. Reescribir solo los que están en DB.usuarios ahora (los que el supervisor ve)
-      // Deduplicar por nombre antes de subir
-      const seen = new Set();
-      let subidos = 0;
-      for(const u of DB.usuarios){
-        const key = u.nombre.trim().toLowerCase();
-        if(seen.has(key)) continue;
-        seen.add(key);
-        const id = u.nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-                           .replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
-        await setDoc(doc(db, 'usuarios', id), {...u, _id: id});
-        subidos++;
-      }
-      alert('✓ Listo. Firebase reescrito con ' + subidos + ' operario' + (subidos!==1?'s':'') + '.');
-    }catch(e){ alert('Error: '+e.message); }
-  };
-  window._limpiarDups();
+async function limpiarDuplicadosFirebase(){
+  try{
+    const { getDocs, collection, deleteDoc, doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const db = window.db;
+    const snap = await getDocs(collection(db, 'usuarios'));
+    const ids = snap.docs.map(d => d.id + ' → ' + (d.data().nombre||'?'));
+    if(!confirm('Firebase tiene ' + snap.docs.length + ' documentos:\n' + ids.join('\n') + '\n\n¿Borrar TODOS y reescribir solo los ' + DB.usuarios.length + ' que están en pantalla?')) return;
+
+    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'usuarios', d.id))));
+    await new Promise(r => setTimeout(r, 1000));
+
+    const seen = new Set();
+    let subidos = 0;
+    for(const u of DB.usuarios){
+      const key = u.nombre.trim().toLowerCase();
+      if(seen.has(key)) continue;
+      seen.add(key);
+      const id = u.nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                         .replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+      await setDoc(doc(db, 'usuarios', id), {nombre: u.nombre, area: u.area, _id: id});
+      subidos++;
+    }
+    alert('✓ Listo. Reescritos ' + subidos + ' operarios.');
+  }catch(e){ alert('Error: ' + e.message); console.error(e); }
 }
 
 // ═══════════ SUPERVISOR ═══════════
