@@ -837,12 +837,17 @@ tr:hover td{background:var(--bg3);}
             <div class="mc"><div class="num g" id="m2">0</div><div class="lbl2">Registros</div></div>
             <div class="mc"><div class="num r" id="m3">0</div><div class="lbl2">Re-cortes</div></div>
           </div>
-          <div class="frow">
-            <input type="text" id="fop" placeholder="Filtrar OP..." oninput="rReg()">
+          <div class="frow" style="flex-wrap:wrap;gap:8px;">
+            <input type="text" id="fop" placeholder="Filtrar OP..." oninput="rReg()" style="max-width:160px;">
             <select id="fest" onchange="rReg()"><option value="">Todos</option><option value="ok">Registrados</option><option value="pend">Pendientes</option><option value="rec">Re-cortes</option></select>
             <select id="fmaq" onchange="rReg()"><option value="">Todas las máquinas</option></select>
+            <select id="freg-fecha" onchange="rReg()" style="max-width:160px;"><option value="">Todas las fechas</option></select>
+            <select id="freg-orden" onchange="rReg()" style="max-width:180px;">
+              <option value="desc">Más nuevo primero</option>
+              <option value="asc">Más viejo primero</option>
+            </select>
           </div>
-          <div class="dtw"><table><thead><tr><th>OP</th><th>Registrado</th><th>Modelo·Color·Grosor</th><th>Material</th><th>Hojas</th><th>Reut.</th><th>Sob.</th><th>Máquina</th><th>Tipo</th><th>Estado</th><th>Justificación</th><th>Mapa</th><th></th></tr></thead><tbody id="treg"></tbody></table></div>
+          <div class="dtw"><table><thead><tr><th>OP</th><th>Registrado</th><th>Modelo·Color·Grosor</th><th>Material</th><th>Plan.</th><th>Hojas</th><th>Dif.</th><th>Reut.</th><th>Sob.</th><th>Máquina</th><th>Tipo</th><th>Estado</th><th>Justificación</th><th>Mapa</th><th></th></tr></thead><tbody id="treg"></tbody></table></div>
         </div>
         <div class="stab" id="t-planif">
           <p class="ptitle">Planificación</p><p class="psub">OPs cargadas con avance en tiempo real</p>
@@ -1292,7 +1297,7 @@ function confirmarMaq(){
   document.getElementById('on').textContent=cUser;
   document.getElementById('oa').textContent=cArea.nombre;
   document.getElementById('om').textContent=cMaq;
-  resetFlow(); show('screen-operario'); setTimeout(()=>{rFechaTags();fops();},50);
+  resetFlow(); osfecha=''; show('screen-operario'); setTimeout(()=>{rFechaTags();fops();},50);
 }
 
 // ═══════════ BUSCAR OP ═══════════
@@ -1327,14 +1332,11 @@ function rFechaTags(){
   )]);
   if(!fechas.length){ cont.style.display='none'; return; }
   cont.style.display='block';
-  // Si no hay fecha seleccionada, pre-seleccionar la más cercana a hoy
-  const cur = sel.value || (!osfecha ? fechaMasCercana(fechas) : '');
+  // Sin pre-selección — mostrar todas las OPs por defecto
+  const cur = sel.value;
   sel.innerHTML = '<option value="">Todos los días</option>' +
     fechas.map(f=>'<option value="'+f+'"'+(f===cur?' selected':'')+'>'+f+'</option>').join('');
-  if(cur && fechas.includes(cur)){
-    sel.value = cur;
-    if(!osfecha){ osfecha = cur; } // aplicar el filtro automáticamente
-  }
+  if(cur && fechas.includes(cur)) sel.value = cur;
 }
 function normGrosor(g){ return (g||'').toString().toLowerCase().replace(/\s+/g,''); }
 function fops(){
@@ -1629,18 +1631,52 @@ function fComp(lid){
   const q=(document.getElementById('ci'+lid)||{value:''}).value.trim().toLowerCase();
   const cont=document.getElementById('cr'+lid);if(!cont)return;
   const lam=GL(lid);if(!lam)return;
-  const cands=DB.ops.filter(o=>o.area===cArea.id&&o.color===cOP.color&&o.grosor===cOP.grosor&&o.op!==cOP.op)
-    .filter(o=>!q||o.op.toLowerCase().includes(q)||o.modelo.toLowerCase().includes(q));
-  if(!cands.length){cont.innerHTML='<div style="padding:10px;text-align:center;font-size:12px;color:var(--text3);font-family:monospace;">Sin OPs con mismo color y grosor</div>';return;}
+
+  // Usar el SKU/color/grosor del material que se está cortando ahora, no el de la OP
+  const matActual = (cMatIdx!==null && cOP.materiales) ? cOP.materiales[cMatIdx] : null;
+  const skuActual = matActual?.skuMat || null;
+  const matCat    = skuActual ? CATALOGO_MELAMINAS.find(m=>m.sku===skuActual) : null;
+  const colorActual  = matCat ? matCat.color  : cOP.color;
+  const grosorActual = matCat ? (matCat.grosor||'').toLowerCase().replace(/\s+/g,'') : cOP.grosor;
+
+  // Filtrar OPs que tengan el mismo material (por SKU si es posible, si no por color+grosor)
+  const cands = DB.ops.filter(o=>{
+    if(o.area!==cArea.id || o.op===cOP.op) return false;
+    if(skuActual){
+      // Buscar si algún material de esa OP tiene el mismo SKU
+      return o.materiales && o.materiales.some(m=>m.skuMat===skuActual);
+    }
+    // Fallback: mismo color y grosor
+    return o.color===colorActual && o.grosor===grosorActual;
+  }).filter(o=>!q||o.op.toLowerCase().includes(q)||o.modelo.toLowerCase().includes(q));
+
+  if(!cands.length){
+    cont.innerHTML='<div style="padding:10px;text-align:center;font-size:12px;color:var(--text3);font-family:monospace;">Sin OPs con el mismo material</div>';
+    return;
+  }
+
+  // Actualizar el header del panel con el material correcto
+  const hdr = document.getElementById('comp-mat-hdr'+lid);
+  if(hdr) hdr.textContent = 'Color: '+(matCat?matCat.color:colorActual)+' · Grosor: '+grosorActual;
+
   const ya=new Set((lam.zonas||[]).filter(z=>z.tipo==='op').map(z=>z.opKey));
   cont.innerHTML='';
   cands.forEach(op=>{
     const activa=lam.opActual&&lam.opActual.opKey===op.op;
+    // Encontrar el material coincidente en esta OP para mostrarlo
+    const matCoincide = skuActual
+      ? op.materiales?.find(m=>m.skuMat===skuActual)
+      : null;
     const d=document.createElement('div');d.className='citem'+(activa?' act':'');
-    d.innerHTML='<div><div style="font-family:monospace;font-size:11px;color:var(--text2);">'+op.op+' · '+op.sku+'</div>'+
-      '<div style="font-size:13px;font-weight:500;">Mod. '+op.modelo+' · '+op.color+' · '+op.grosor+'</div>'+
-      '<div style="font-size:11px;color:var(--text2);font-family:monospace;">'+op.cantidad+' uds'+(op.fecha?' · '+op.fecha:'')+'</div></div>'+
-      (ya.has(op.op)?'<span class="badge b-ok">Ya dibujada</span>':'<span class="badge b-pend">Asignar</span>');
+    d.innerHTML='<div>'+
+      '<div style="font-family:monospace;font-size:11px;color:var(--text2);">'+op.op+' · '+op.sku+'</div>'+
+      '<div style="font-size:13px;font-weight:500;">'+op.modelo+'</div>'+
+      '<div style="font-size:11px;color:var(--text2);font-family:monospace;">'+
+        (matCoincide ? matCoincide.nombre+' · ' : '')+
+        (matCoincide ? matCoincide.planificado+' hjs · ' : '')+
+        (op.fecha||'')+
+      '</div></div>'+
+      (ya.has(op.op)?'<span class="badge b-ok">Ya dibujada</span>':'<span class="badge b-pend" style="cursor:pointer;">Asignar</span>');
     d.onclick=()=>selCOP(lid,op.op);
     cont.appendChild(d);
   });
@@ -3662,10 +3698,56 @@ function rReg(){
   const fop=(document.getElementById('fop')||{value:''}).value.toLowerCase();
   const fest=(document.getElementById('fest')||{value:''}).value;
   const fmq=(document.getElementById('fmaq')||{value:''}).value;
+  const ffecha=(document.getElementById('freg-fecha')||{value:''}).value;
+  const forden=(document.getElementById('freg-orden')||{value:'desc'}).value;
+
   const allR=supArea?DB.registros.filter(r=>r.area===supArea.id):DB.registros;
   const allO=supArea?DB.ops.filter(o=>o.area===supArea.id):DB.ops;
+
+  // Poblar selector de fechas con fechas de registro únicas
+  const selFecha = document.getElementById('freg-fecha');
+  if(selFecha){
+    const fechasReg = sortFechas([...new Set(allR.map(r=>{
+      const fr = r.fechaRegistro||r.fecha||'';
+      const m = fr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if(!m) return '';
+      // Normalizar a dd/mm/yyyy
+      return m[1].padStart(2,'0')+'/'+m[2].padStart(2,'0')+'/'+m[3];
+    }).filter(Boolean))]);
+    const cur = selFecha.value;
+    selFecha.innerHTML = '<option value="">Todas las fechas</option>' +
+      fechasReg.map(f=>'<option value="'+f+'"'+(f===cur?' selected':'')+'>'+f+'</option>').join('');
+    if(cur) selFecha.value = cur;
+  }
+
+  // Ordenar registros — soporta dd/mm/yyyy, dd-mm-yyyy, con hora HH:MM o HH:MM a. m./p. m.
+  function parseFechaReg(r){
+    const f = r.fechaRegistro || '';
+    if(!f) return new Date(0);
+    const m = f.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?:\s*(a\.?\s*m\.?|p\.?\s*m\.?))?)?/i);
+    if(!m) return new Date(0);
+    let h = +(m[4]||0), min = +(m[5]||0);
+    const ampm = (m[6]||'').replace(/\.\s*/g,'').toLowerCase();
+    if(ampm==='pm' && h<12) h+=12;
+    if(ampm==='am' && h===12) h=0;
+    return new Date(+m[3], +m[2]-1, +m[1], h, min);
+  }
+  const regsOrdenados = [...allR].sort((a,b)=>{
+    const fa = parseFechaReg(a);
+    const fb = parseFechaReg(b);
+    return forden==='asc' ? fa-fb : fb-fa;
+  });
+
   const rows=[];
-  allR.forEach(r=>{
+  regsOrdenados.forEach(r=>{
+    // Filtro de fecha de registro
+    if(ffecha){
+      const fr = r.fechaRegistro||r.fecha||'';
+      const m = fr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if(!m) return;
+      const normalizada = m[1].padStart(2,'0')+'/'+m[2].padStart(2,'0')+'/'+m[3];
+      if(normalizada!==ffecha) return;
+    }
     if(fop&&!r.op.toLowerCase().includes(fop))return;
     if(fest==='pend')return;
     if(fest==='rec'&&r.tipo!=='recorte')return;
@@ -3675,6 +3757,15 @@ function rReg(){
       const ri=DB.registros.indexOf(r);
       const tipH=r.tipo==='recorte'?'<span class="badge b-rec">Re-corte</span>'+(r.motivo?'<br><span style="font-size:10px;color:var(--text2);">'+r.motivo+'</span>':''):'<span class="badge b-ok">Normal</span>';
       const del=mi===0?'<button class="btn btn-red btn-sm" onclick="abrirMR('+ri+')" style="opacity:.5;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5"><i class="ti ti-trash"></i></button>':'';
+      // Plan. y Diferencia
+      const plan = m.planificado>0 ? m.planificado : 0;
+      const real = m.hojas||0;
+      const dif  = plan>0 && real>0 ? real - plan : null;
+      const difPct = dif!==null && plan>0 ? (dif/plan*100) : null;
+      const difColor = dif===null?'var(--text3)':dif>0.01?'var(--red-t)':dif<-0.01?'var(--blue-t)':'var(--green-t)';
+      const difCell  = dif===null?'<span style="color:var(--text3);">—</span>':
+        '<span style="color:'+difColor+';font-weight:600;">'+(dif>0?'+':'')+dif.toFixed(2)+
+        (difPct!==null?'<br><span style="font-size:10px;opacity:.8;">'+(difPct>0?'+':'')+difPct.toFixed(0)+'%</span>':'')+'</span>';
       rows.push('<tr>'+
         '<td><span class="badge b-op">'+r.op+'</span>'+(r.sinAsignar?'<br><span class="badge b-sinop" style="font-size:9px;">sin OP</span>':'')+
         '<br><span style="font-size:11px;color:var(--text2);">'+r.operario+'</span>'+
@@ -3682,7 +3773,9 @@ function rReg(){
         '<td style="font-size:11px;font-family:monospace;color:var(--text2);white-space:nowrap;">'+(r.fechaRegistro||r.fecha||'—')+'</td>'+
         '<td style="font-family:monospace;font-size:12px;">'+r.modelo+'<br><span style="color:var(--text2);">'+r.color+' · '+r.grosor+'</span></td>'+
         '<td>'+m.nombre+'<br><span style="font-family:monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
-        '<td style="font-family:monospace;color:var(--amber-t);">'+(m.hojas||0).toFixed(2)+'</td>'+
+        '<td style="font-family:monospace;color:var(--text2);">'+(plan>0?plan:'—')+'</td>'+
+        '<td style="font-family:monospace;color:var(--amber-t);font-weight:500;">'+real.toFixed(2)+'</td>'+
+        '<td>'+difCell+'</td>'+
         '<td style="font-family:monospace;color:var(--wood-t);">'+(m.reutilizado>0?m.reutilizado.toFixed(2):'—')+'</td>'+
         '<td style="font-family:monospace;color:var(--text2);">'+(m.sobrante||0).toFixed(2)+'</td>'+
         '<td><span class="badge b-maq">'+r.maquina+'</span></td><td>'+tipH+'</td>'+
@@ -3699,13 +3792,16 @@ function rReg(){
       if(fop&&!op.op.toLowerCase().includes(fop))return;
       const an=DB.areas.find(a=>a.id===op.area)?.nombre||op.area;
       op.materiales.forEach(m=>{
-        const has=allR.some(r=>r.op===op.op&&r.materiales.some(rm=>rm.skuMat===m.skuMat));
+        const has=regsOrdenados.some(r=>r.op===op.op&&r.materiales.some(rm=>rm.skuMat===m.skuMat));
         if(has)return;
         rows.push('<tr><td><span class="badge b-op">'+op.op+'</span><br><span style="font-size:10px;color:var(--text3);font-family:monospace;">'+an+'</span></td>'+
+          '<td>—</td>'+
           '<td style="font-family:monospace;font-size:12px;">'+op.modelo+'<br><span style="color:var(--text2);">'+op.color+' · '+op.grosor+'</span></td>'+
           '<td>'+m.nombre+'<br><span style="font-family:monospace;font-size:11px;color:var(--text2);">'+m.skuMat+'</span></td>'+
-          '<td colspan="6" style="color:var(--text3);">—</td>'+
-          '<td><span class="badge b-pend">Pendiente</span></td><td></td></tr>');
+          '<td style="font-family:monospace;color:var(--text2);">'+(m.planificado>0?m.planificado:'—')+'</td>'+
+          '<td colspan="3" style="color:var(--text3);">—</td>'+
+          '<td style="color:var(--text3);">—</td><td style="color:var(--text3);">—</td>'+
+          '<td><span class="badge b-pend">Pendiente</span></td><td></td><td></td><td></td></tr>');
       });
     });
   }
