@@ -138,7 +138,11 @@ window.fbCargarConfig = async function() {
       areasSnap.docs.forEach(d => {
         const a = d.data();
         const idx = DB.areas.findIndex(x => x.id === a.id);
-        if(idx >= 0) DB.areas[idx] = {...DB.areas[idx], ...a};
+        if(idx >= 0) DB.areas[idx] = {
+          ...DB.areas[idx],
+          ...a,
+          maquinas: a.maquinas || DB.areas[idx].maquinas || []
+        };
       });
     }
     if(usrsSnap.docs.length > 0){
@@ -201,6 +205,7 @@ window.fbInit = async function() {
     if(ops.length > 0) DB.ops = ops;
     if(sobrantes.length > 0) DB.sobrantes = sobrantes;
     if(spiezas && spiezas.length > 0) DB.stockPiezas = spiezas;
+    if(!DB.residuos) DB.residuos = [];
     await fbCargarConfig();
     if(indicator) { indicator.textContent = '☁ En línea'; indicator.style.color = 'var(--green-t)'; }
 
@@ -235,6 +240,12 @@ window.fbInit = async function() {
         }
       });
     });
+    onSnapshot(collection(db, "residuos"), (snap) => {
+      if(window.fbPaused) return;
+      DB.residuos = snap.docs.map(d => d.data());
+      if(typeof rResidualHoy==='function') rResidualHoy();
+      if(typeof rResiduos==='function' && document.getElementById('t-residuos')?.style.display!=='none') rResiduos();
+    });
     onSnapshot(collection(db, "papelera"), (snap) => {
       if(window.fbPaused) return;
       papelera = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
@@ -258,9 +269,15 @@ window.fbInit = async function() {
         snap.docs.forEach(d => {
           const area = d.data();
           const idx = DB.areas.findIndex(a => a.id === area.id);
-          // Merge: conservar propiedades hardcodeadas (icon, desc) y actualizar maquinas
-          if(idx >= 0) DB.areas[idx] = {...DB.areas[idx], ...area};
-          else DB.areas.push(area);
+          if(idx >= 0){
+            // Firebase es la fuente de verdad para maquinas
+            // Conservar solo icon, desc, nombre del hardcodeado
+            DB.areas[idx] = {
+              ...DB.areas[idx],        // icon, desc, nombre (hardcodeados)
+              ...area,                  // todo lo de Firebase
+              maquinas: area.maquinas || DB.areas[idx].maquinas || []
+            };
+          } else DB.areas.push(area);
         });
         if(typeof rFMaq === 'function') rFMaq();
         if(typeof rMaqTab === 'function') rMaqTab();
@@ -311,6 +328,17 @@ window.fbCargarStockPiezas = async function() {
     const sp = d.docs.find(x=>x.id==='stockPiezas');
     return sp ? sp.data().piezas : null;
   } catch(e) { return null; }
+};
+
+
+// ─── Residuos ───
+window.fbGuardarResiduo = async function(reg) {
+  try { await setDoc(doc(db, "residuos", reg.id), reg); }
+  catch(e) { console.error("Error guardando residuo:", e); }
+};
+window.fbEliminarResiduo = async function(id) {
+  try { await deleteDoc(doc(db, "residuos", id)); }
+  catch(e) { console.error("Error eliminando residuo:", e); }
 };
 
 // Esperar a que el DOM esté listo
@@ -686,6 +714,7 @@ tr:hover td{background:var(--bg3);}
     <div class="fc g1">
       <button class="op-planif-btn" id="btn-planif-op" onclick="togPlanifOp()"><i class="ti ti-table"></i> Planificación</button>
       <button class="btn btn-ghost btn-sm" onclick="cambiarMaq()"><i class="ti ti-tool"></i> Máquina</button>
+      <span id="rol-badge" style="font-size:11px;font-family:monospace;padding:3px 8px;border-radius:6px;display:none;"></span>
       <span id="fb-status" style="font-size:11px;font-family:monospace;color:var(--text3);padding:3px 8px;border-radius:6px;border:0.5px solid var(--border);">☁ —</span>
       <button class="btn btn-ghost btn-sm" onclick="logout()"><i class="ti ti-logout"></i></button>
     </div>
@@ -824,6 +853,8 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-excel',this)"><i class="ti ti-file-spreadsheet"></i> Cargar Excel</div>
         <div class="ni" onclick="showT('t-maq',this)"><i class="ti ti-tool"></i> Máquinas</div>
         <div class="ni" onclick="showT('t-usr',this)"><i class="ti ti-users"></i> Operarios</div>
+        <div class="ni" onclick="showT('t-aprovechamiento',this)"><i class="ti ti-chart-pie"></i> Aprovechamiento</div>
+        <div class="ni" onclick="showT('t-residuos',this)"><i class="ti ti-trash"></i> Residuos</div>
         <div class="ni" onclick="showT('t-stock',this)"><i class="ti ti-puzzle"></i> Piezas stock</div>
         <div class="ni" onclick="showT('t-almacen',this)"><i class="ti ti-stack-2"></i> Almacén<span id="almacen-badge" style="display:none;margin-left:auto;background:var(--wood-bg);color:var(--wood-t);border:0.5px solid var(--wood);font-size:10px;font-family:'DM Mono',monospace;padding:1px 6px;border-radius:4px;"></span></div>
         <div class="ni" onclick="showT('t-pap',this)"><i class="ti ti-trash"></i> Papelera</div>
@@ -1041,11 +1072,62 @@ tr:hover td{background:var(--bg3);}
               <div><label class="lbl">Área</label><select id="susrarea"></select></div>
             </div>
             <button class="btn btn-amber" onclick="aUsr()"><i class="ti ti-plus"></i> Agregar</button>
-          <button class="btn btn-ghost btn-sm" onclick="limpiarDuplicadosFirebase()" style="margin-left:8px;" title="Eliminar duplicados de Firebase"><i class="ti ti-refresh"></i> Limpiar duplicados</button>
+          <button class="btn btn-ghost btn-sm" id="btn-limpiar-duplicados" onclick="limpiarDuplicadosFirebase()" style="margin-left:8px;" title="Eliminar duplicados de Firebase"><i class="ti ti-refresh"></i> Limpiar duplicados</button>
           </div>
         </div>
 
 
+
+
+        <div class="stab" id="t-aprovechamiento">
+          <p class="ptitle">Aprovechamiento de Material</p>
+          <p class="psub">Hojas cortadas vs residuos — por máquina y total</p>
+
+          <!-- Selector de rango -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:1.5rem;">
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-ghost btn-sm aprov-rng active" id="aprov-btn-semana" onclick="aprovSetRango('semana',this)">Esta semana</button>
+              <button class="btn btn-ghost btn-sm aprov-rng" id="aprov-btn-semana-ant" onclick="aprovSetRango('semana-ant',this)">Semana anterior</button>
+              <button class="btn btn-ghost btn-sm aprov-rng" id="aprov-btn-mes" onclick="aprovSetRango('mes',this)">Este mes</button>
+              <button class="btn btn-ghost btn-sm aprov-rng" id="aprov-btn-libre" onclick="aprovSetRango('libre',this)">Personalizado</button>
+            </div>
+            <div id="aprov-rango-libre" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;">
+              <div><label class="lbl">Desde</label><input type="date" id="aprov-desde" onchange="rAprovechamiento()"></div>
+              <div><label class="lbl">Hasta</label><input type="date" id="aprov-hasta" onchange="rAprovechamiento()"></div>
+            </div>
+          </div>
+
+          <!-- KPIs principales -->
+          <div id="aprov-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:1.5rem;"></div>
+
+          <!-- Por máquina -->
+          <div id="aprov-maquinas" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:1.5rem;"></div>
+
+          <!-- Tabla detalle por día -->
+          <div class="card">
+            <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Detalle por día</p>
+            <div class="dtw"><table>
+              <thead><tr><th>Fecha</th><th>Hojas</th><th>Kg cortados</th><th>Residuos</th><th>Aprovechamiento</th></tr></thead>
+              <tbody id="aprov-tabla"></tbody>
+            </table></div>
+          </div>
+        </div>
+        <div class="stab" id="t-residuos">
+          <p class="ptitle">Control de Residuos</p>
+          <p class="psub">Basura y esqueleto de corte por máquina</p>
+
+          <!-- KPIs -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.5rem;" id="res-kpis"></div>
+
+          <!-- Filtros -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;align-items:flex-end;">
+            <div><label class="lbl">Fecha</label><select id="res-f-fecha" onchange="rResiduos()" style="max-width:160px;"><option value="">Todas</option></select></div>
+            <div><label class="lbl">Máquina</label><select id="res-f-maq" onchange="rResiduos()" style="max-width:160px;"><option value="">Todas</option></select></div>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('res-f-fecha').value='';document.getElementById('res-f-maq').value='';rResiduos()"><i class="ti ti-x"></i> Limpiar</button>
+          </div>
+
+          <div class="dtw"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Máquina</th><th>Kilos</th><th>Observación</th><th></th></tr></thead><tbody id="t-res-body"></tbody></table></div>
+        </div>
         <div class="stab" id="t-stock">
           <p class="ptitle">Piezas de stock</p>
           <p class="psub">Botones rápidos para piezas de aprovechamiento</p>
@@ -1173,7 +1255,9 @@ tr:hover td{background:var(--bg3);}
 
 
 // ═══════════ CONSTANTES ═══════════
-const PIN = '4689';
+const PIN = '4689'; // Supervisor completo
+const PIN_READONLY = ['4523','7542']; // Solo lectura
+let rolActual = 'supervisor'; // 'supervisor' | 'readonly'
 const MLW = 520, MLH = 180, MLA = MLW * MLH;
 const MLC = [
   {f:'rgba(37,99,235,.18)', s:'#1D4ED8',t:'#1D4ED8'},
@@ -1214,9 +1298,12 @@ if(!DB.stockPiezas) DB.stockPiezas = [
 function show(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  // Ocultar calculadora al cambiar de pantalla
   const calc=document.getElementById('calc-panel');
   if(calc) calc.classList.remove('open','collapsed');
+  if(id==='screen-residuos') setTimeout(initResiduo,50);
+  // Botón residuos solo visible en login
+  const btnRes = document.getElementById('btn-residuos-fixed');
+  if(btnRes) btnRes.style.display = id==='screen-login' ? 'flex' : 'none';
 }
 function logout(){ cUser=null; cArea=null; cMaq=null; rAreas(); show('screen-login'); }
 function cambiarMaq(){ rMaqs(); show('screen-maquina'); }
@@ -1271,7 +1358,11 @@ function cp(){
     if(pin===PIN){
       ['p1','p2','p3','p4'].forEach(id=>document.getElementById(id).value='');
       document.getElementById('perr').style.display='none';
-      initSup(); show('screen-supervisor');
+      rolActual='supervisor'; initSup(); show('screen-supervisor');
+    } else if(PIN_READONLY.includes(pin)){
+      ['p1','p2','p3','p4'].forEach(id=>document.getElementById(id).value='');
+      document.getElementById('perr').style.display='none';
+      rolActual='readonly'; initSup(); show('screen-supervisor');
     } else {
       document.getElementById('perr').style.display='block';
       ['p1','p2','p3','p4'].forEach(id=>document.getElementById(id).value='');
@@ -2694,7 +2785,8 @@ function buildPDFHTML(d, areaNom, hoy){
 
   // ── Footer ──
   html += '<div class="footer"><span>línea italia · Control de Materiales · '+areaNom+'</span><span>'+hoy+'</span></div>';
-  html += '\n</body></html>';
+  html += '\n';
+// HTML residuos removido de aqui
   return html;
 }
 
@@ -3615,6 +3707,389 @@ async function limpiarDuplicadosFirebase(){
   }catch(e){ alert('Error: ' + e.message); console.error(e); }
 }
 
+
+// ═══════════ MÓDULO RESIDUOS ═══════════
+
+function initResiduo(){
+  // Fecha y hora actuales por defecto
+  const now = new Date();
+  const fi = document.getElementById('res-fecha');
+  const hi = document.getElementById('res-hora');
+  if(fi) fi.value = now.toISOString().slice(0,10);
+  if(hi) hi.value = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+
+  // Poblar máquinas
+  const sel = document.getElementById('res-maq');
+  if(sel){
+    const maqs = DB.areas.flatMap(a=>a.maquinas||[]);
+    sel.innerHTML = '<option value="">Selecciona máquina...</option>' +
+      maqs.map(m=>'<option value="'+m+'">'+m+'</option>').join('');
+  }
+  rResidualHoy();
+}
+
+function guardarResiduo(){
+  const fecha  = document.getElementById('res-fecha')?.value;
+  const hora   = document.getElementById('res-hora')?.value;
+  const maq    = document.getElementById('res-maq')?.value;
+  const kilos  = parseFloat(document.getElementById('res-kilos')?.value);
+  const obs    = document.getElementById('res-obs')?.value?.trim()||'';
+
+  if(!fecha||!maq){ alert('Completá fecha y máquina'); return; }
+  if(isNaN(kilos)||kilos<=0){ alert('Ingresá los kilos tirados'); return; }
+
+  // Formatear fecha a dd/mm/yyyy
+  const [y,m,d] = fecha.split('-');
+  const fechaStr = d+'/'+m+'/'+y;
+  const fechaHora = fechaStr + ' ' + (hora||'');
+
+  const reg = {
+    id:        'RES-'+Date.now(),
+    fecha:     fechaStr,
+    hora:      hora||'',
+    fechaHora: fechaHora,
+    maquina:   maq,
+    kilos,
+    obs,
+    creadoEn:  new Date().toLocaleString('es-CL')
+  };
+
+  // Guardar en Firebase
+  if(typeof fbGuardarResiduo === 'function'){
+    fbGuardarResiduo(reg).catch(console.error);
+  }
+
+  // Actualizar UI
+  document.getElementById('res-kilos').value = '';
+  document.getElementById('res-obs').value   = '';
+  rResidualHoy();
+
+  // Feedback
+  const btn = document.querySelector('#screen-residuos .btn-amber');
+  if(btn){ const t=btn.textContent; btn.textContent='✓ Guardado'; btn.style.background='var(--green)'; setTimeout(()=>{btn.innerHTML='<i class="ti ti-check"></i> Guardar registro';btn.style.background='';},1500); }
+}
+
+function rResidualHoy(){
+  const hoy = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'/');
+  const cont = document.getElementById('res-historial'); if(!cont) return;
+  const hoyReg = (DB.residuos||[]).filter(r=>r.fecha===hoy).sort((a,b)=>b.hora.localeCompare(a.hora));
+  if(!hoyReg.length){ cont.innerHTML='<p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros hoy</p>'; return; }
+  cont.innerHTML = hoyReg.map(r=>
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:0.5px solid var(--border);">'+
+      '<div><span style="font-size:13px;font-weight:500;">'+r.kilos+' kg</span> · <span style="font-size:12px;color:var(--text2);">'+r.maquina+'</span>'+
+      (r.obs?'<br><span style="font-size:11px;color:var(--text3);">'+r.obs+'</span>':'')+'</div>'+
+      '<span style="font-size:11px;font-family:monospace;color:var(--text3);">'+r.hora+'</span>'+
+    '</div>'
+  ).join('');
+}
+
+// ── Supervisor: tab residuos ──
+function rResiduos(){
+  const todos = supArea
+    ? (DB.residuos||[]).filter(r=>{
+        const maqs = DB.areas.find(a=>a.id===supArea.id)?.maquinas||[];
+        return maqs.includes(r.maquina);
+      })
+    : (DB.residuos||[]);
+
+  const ffecha = document.getElementById('res-f-fecha')?.value||'';
+  const fmaq   = document.getElementById('res-f-maq')?.value||'';
+
+  // Poblar filtros
+  const selF = document.getElementById('res-f-fecha');
+  const selM = document.getElementById('res-f-maq');
+  if(selF){
+    const fechas = sortFechas([...new Set(todos.map(r=>r.fecha).filter(Boolean))]);
+    const curF = selF.value;
+    selF.innerHTML = '<option value="">Todas</option>'+fechas.map(f=>'<option value="'+f+'"'+(f===curF?' selected':'')+'>'+f+'</option>').join('');
+  }
+  if(selM){
+    const maqs = [...new Set(todos.map(r=>r.maquina).filter(Boolean))].sort();
+    const curM = selM.value;
+    selM.innerHTML = '<option value="">Todas</option>'+maqs.map(m=>'<option value="'+m+'"'+(m===curM?' selected':'')+'>'+m+'</option>').join('');
+  }
+
+  const filtrados = todos.filter(r=>{
+    if(ffecha && r.fecha!==ffecha) return false;
+    if(fmaq   && r.maquina!==fmaq) return false;
+    return true;
+  }).sort((a,b)=>(b.fechaHora||'').localeCompare(a.fechaHora||''));
+
+  // KPIs
+  const totalKg = filtrados.reduce((s,r)=>s+r.kilos,0);
+  const byMaq   = {};
+  filtrados.forEach(r=>{ byMaq[r.maquina]=(byMaq[r.maquina]||0)+r.kilos; });
+  const kpiDiv = document.getElementById('res-kpis');
+  if(kpiDiv){
+    let html = '<div style="background:var(--red-bg);border:0.5px solid var(--red);border-radius:10px;padding:14px 16px;">'+
+      '<div style="font-size:22px;font-weight:700;color:var(--red-t);font-family:monospace;">'+totalKg.toFixed(1)+' kg</div>'+
+      '<div style="font-size:12px;color:var(--red-t);opacity:.7;">Total residuos</div></div>';
+    Object.entries(byMaq).sort((a,b)=>b[1]-a[1]).forEach(([maq,kg])=>{
+      html += '<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:10px;padding:14px 16px;">'+
+        '<div style="font-size:18px;font-weight:700;font-family:monospace;color:var(--text);">'+kg.toFixed(1)+' kg</div>'+
+        '<div style="font-size:12px;color:var(--text2);">'+maq+'</div></div>';
+    });
+    kpiDiv.innerHTML = html;
+  }
+
+  // Tabla
+  const tbody = document.getElementById('t-res-body'); if(!tbody) return;
+  if(!filtrados.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:2rem;">Sin registros</td></tr>'; return; }
+  tbody.innerHTML = filtrados.map((r,i)=>
+    '<tr>'+
+    '<td style="font-family:monospace;font-size:12px;">'+r.fecha+'</td>'+
+    '<td style="font-family:monospace;font-size:12px;color:var(--text2);">'+r.hora+'</td>'+
+    '<td><span class="badge b-maq">'+r.maquina+'</span></td>'+
+    '<td style="font-family:monospace;font-weight:600;color:var(--red-t);">'+r.kilos+' kg</td>'+
+    '<td style="font-size:12px;color:var(--text2);">'+(r.obs||'—')+'</td>'+
+    '<td><button class="btn btn-red btn-sm" onclick="eliminarResiduo(\''+r.id+'\')"><i class="ti ti-trash"></i></button></td>'+
+    '</tr>'
+  ).join('');
+}
+
+function eliminarResiduo(id){
+  if(!confirm('¿Eliminar este registro?')) return;
+  DB.residuos = (DB.residuos||[]).filter(r=>r.id!==id);
+  if(typeof fbEliminarResiduo==='function') fbEliminarResiduo(id).catch(console.error);
+  rResiduos();
+}
+
+
+
+// Pesos por hoja en kg según grosor
+const PESOS_HOJA = {
+  '5.5mm':  13.6,
+  '5.5 mm': 13.6,
+  '5.5MM':  13.6,
+  '12mm':   24.5,
+  '12 mm':  24.5,
+  '12MM':   24.5,
+  '16mm':   24.5,
+  '16 mm':  24.5,
+  '16MM':   24.5,
+  '19mm':   30.5,
+  '19 mm':  30.5,
+  '19MM':   30.5,
+  '28mm':   43.5,
+  '28 mm':  43.5,
+  '28MM':   43.5,
+};
+
+function kgPorHoja(grosor){
+  if(!grosor) return null;
+  const g = grosor.toString().toLowerCase().replace(/\s+/g,'');
+  for(const [k,v] of Object.entries(PESOS_HOJA)){
+    if(k.toLowerCase().replace(/\s+/g,'') === g) return v;
+  }
+  return null;
+}
+
+function calcKgCortados(registros){
+  // Suma kg cortados cruzando hojas × peso/hoja del grosor de cada registro
+  return registros.reduce((s,r)=>{
+    const hojas = r.materiales?.[0]?.hojas||0;
+    const kg    = kgPorHoja(r.grosor);
+    return s + (kg ? hojas * kg : 0);
+  }, 0);
+}
+
+// ═══════════ APROVECHAMIENTO ═══════════
+let aprovRango = 'semana';
+
+function aprovSetRango(rango, el){
+  aprovRango = rango;
+  document.querySelectorAll('.aprov-rng').forEach(b=>b.classList.remove('active'));
+  if(el) el.classList.add('active');
+  const libre = document.getElementById('aprov-rango-libre');
+  if(libre) libre.style.display = rango==='libre' ? 'flex' : 'none';
+  if(rango!=='libre') rAprovechamiento();
+}
+
+function aprovGetRango(){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  if(aprovRango==='semana'){
+    const dow = hoy.getDay(); // 0=dom
+    const lun = new Date(hoy); lun.setDate(hoy.getDate() - (dow===0?6:dow-1));
+    const dom = new Date(lun); dom.setDate(lun.getDate()+6);
+    return {desde: lun, hasta: dom};
+  }
+  if(aprovRango==='semana-ant'){
+    const dow = hoy.getDay();
+    const lunEsta = new Date(hoy); lunEsta.setDate(hoy.getDate()-(dow===0?6:dow-1));
+    const lunAnt  = new Date(lunEsta); lunAnt.setDate(lunEsta.getDate()-7);
+    const domAnt  = new Date(lunAnt);  domAnt.setDate(lunAnt.getDate()+6);
+    return {desde: lunAnt, hasta: domAnt};
+  }
+  if(aprovRango==='mes'){
+    const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const hasta = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0);
+    return {desde, hasta};
+  }
+  if(aprovRango==='libre'){
+    const d = document.getElementById('aprov-desde')?.value;
+    const h = document.getElementById('aprov-hasta')?.value;
+    if(!d||!h) return null;
+    const [dy,dm,dd2] = d.split('-'); const [hy,hm,hd] = h.split('-');
+    return {desde: new Date(+dy,+dm-1,+dd2), hasta: new Date(+hy,+hm-1,+hd)};
+  }
+  return null;
+}
+
+function fechaEnRango(fechaStr, desde, hasta){
+  // fechaStr: dd/mm/yyyy o dd-mm-yyyy
+  const m = fechaStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if(!m) return false;
+  const d = new Date(+m[3], +m[2]-1, +m[1]);
+  d.setHours(0,0,0,0);
+  return d >= desde && d <= hasta;
+}
+
+function fechaStrToDate(fechaStr){
+  const m = fechaStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if(!m) return null;
+  return new Date(+m[3], +m[2]-1, +m[1]);
+}
+
+function rAprovechamiento(){
+  const rango = aprovGetRango();
+  if(!rango){ return; }
+  const {desde, hasta} = rango;
+
+  const allR = supArea ? DB.registros.filter(r=>r.area===supArea.id) : DB.registros;
+  const allRes = DB.residuos||[];
+
+  // Filtrar por rango — usar fechaRegistro para registros, fecha para residuos
+  const regsRango = allR.filter(r=>{
+    const f = r.fechaRegistro||r.fecha||'';
+    const m = f.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m) return false;
+    return fechaEnRango(m[1]+'/'+m[2]+'/'+m[3], desde, hasta);
+  });
+  const resRango = allRes.filter(r=>r.fecha && fechaEnRango(r.fecha, desde, hasta));
+
+  // Totales generales
+  const totalHojas = regsRango.reduce((s,r)=>s+(r.materiales?.[0]?.hojas||0),0);
+  const totalKgRes = resRango.reduce((s,r)=>s+(r.kilos||0),0);
+
+  // Máquinas involucradas
+  const maqs = [...new Set([
+    ...regsRango.map(r=>r.maquina).filter(Boolean),
+    ...resRango.map(r=>r.maquina).filter(Boolean)
+  ])].sort();
+
+  // ── KPIs principales ──
+  const kpiDiv = document.getElementById('aprov-kpis');
+  if(kpiDiv){
+    const fechaDesde = desde.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const fechaHasta = hasta.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const totalKgCort = calcKgCortados(regsRango);
+    const pctDesp  = totalKgCort>0 ? (totalKgRes/totalKgCort*100) : null;
+    const pctAprov = pctDesp!==null ? 100-pctDesp : null;
+    const aprovColor = pctAprov===null?'var(--text)':pctAprov>=90?'var(--green-t)':pctAprov>=75?'var(--amber-t)':'var(--red-t)';
+    const aprovBg    = pctAprov===null?'var(--bg3)':pctAprov>=90?'var(--green-bg)':pctAprov>=75?'var(--amber-bg)':'var(--red-bg)';
+    const aprovBorder= pctAprov===null?'var(--border)':pctAprov>=90?'var(--green)':pctAprov>=75?'var(--amber)':'var(--red)';
+    kpiDiv.innerHTML =
+      kpiCard('Período', fechaDesde+' – '+fechaHasta, 'var(--text)', 'var(--bg3)', 'var(--border)', 'ti-calendar') +
+      kpiCard('Hojas cortadas', totalHojas.toFixed(1)+' hjs', 'var(--amber-t)', 'var(--amber-bg)', 'var(--amber)', 'ti-stack-2') +
+      kpiCard('Material cortado', totalKgCort>0?totalKgCort.toFixed(0)+' kg':'—', 'var(--text)', 'var(--bg3)', 'var(--border)', 'ti-weight') +
+      kpiCard('Residuos', totalKgRes.toFixed(1)+' kg'+(pctDesp!==null?' ('+pctDesp.toFixed(1)+'%)':''), 'var(--red-t)', 'var(--red-bg)', 'var(--red)', 'ti-trash') +
+      kpiCard('Aprovechamiento', pctAprov!==null?pctAprov.toFixed(1)+'%':'Sin datos', aprovColor, aprovBg, aprovBorder, 'ti-chart-pie');
+  }
+
+  // ── Por máquina ──
+  const maqDiv = document.getElementById('aprov-maquinas');
+  if(maqDiv){
+    if(!maqs.length){
+      maqDiv.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:13px;padding:2rem;">Sin datos en este período</div>';
+    } else {
+      maqDiv.innerHTML = maqs.map(maq=>{
+        const regsM  = regsRango.filter(r=>r.maquina===maq);
+        const resM   = resRango.filter(r=>r.maquina===maq);
+        const hojasM = regsM.reduce((s,r)=>s+(r.materiales?.[0]?.hojas||0),0);
+        const kgM    = resM.reduce((s,r)=>s+(r.kilos||0),0);
+        const kgCortM= calcKgCortados(regsM);
+        const pctDM  = kgCortM>0 ? (kgM/kgCortM*100) : null;
+        const pctAM  = pctDM!==null ? 100-pctDM : null;
+        const aColor = pctAM===null?'var(--text)':pctAM>=90?'var(--green-t)':pctAM>=75?'var(--amber-t)':'var(--red-t)';
+        const aBg    = pctAM===null?'var(--bg3)':pctAM>=90?'var(--green-bg)':pctAM>=75?'var(--amber-bg)':'var(--red-bg)';
+        return '<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;padding:16px;">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'+
+            '<span class="badge b-maq">'+maq+'</span>'+
+            (pctAM!==null?'<span style="font-size:14px;font-weight:700;font-family:monospace;color:'+aColor+';">'+pctAM.toFixed(1)+'% aprov.</span>':'<span style="font-size:12px;color:var(--text3);">Sin datos kg</span>')+
+          '</div>'+
+          (pctAM!==null?'<div style="height:6px;background:var(--bg3);border-radius:3px;margin-bottom:10px;overflow:hidden;"><div style="height:100%;width:'+Math.min(100,pctAM).toFixed(1)+'%;background:'+aColor+';border-radius:3px;transition:width .5s;"></div></div>':'')+
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">'+
+            '<div style="background:var(--amber-bg);border-radius:8px;padding:8px;text-align:center;">'+
+              '<div style="font-size:16px;font-weight:700;font-family:monospace;color:var(--amber-t);">'+hojasM.toFixed(1)+'</div>'+
+              '<div style="font-size:10px;color:var(--amber-t);opacity:.7;">hojas</div>'+
+            '</div>'+
+            '<div style="background:var(--bg3);border-radius:8px;padding:8px;text-align:center;">'+
+              '<div style="font-size:16px;font-weight:700;font-family:monospace;color:var(--text);">'+(kgCortM>0?kgCortM.toFixed(0):'—')+'</div>'+
+              '<div style="font-size:10px;color:var(--text2);">kg cortados</div>'+
+            '</div>'+
+            '<div style="background:var(--red-bg);border-radius:8px;padding:8px;text-align:center;">'+
+              '<div style="font-size:16px;font-weight:700;font-family:monospace;color:var(--red-t);">'+kgM.toFixed(1)+'</div>'+
+              '<div style="font-size:10px;color:var(--red-t);opacity:.7;">kg residuos</div>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      }).join('');
+    }
+  }
+
+  // ── Tabla por día ──
+  const tbody = document.getElementById('aprov-tabla');
+  if(tbody){
+    // Agrupar por fecha
+    const porFecha = {};
+    regsRango.forEach(r=>{
+      const f = (r.fechaRegistro||r.fecha||'').match(/^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/);
+      if(!f) return;
+      const key = f[1].replace(/-/g,'/');
+      if(!porFecha[key]) porFecha[key] = {hojas:0, kg:0, kgCort:0};
+      const hojas = r.materiales?.[0]?.hojas||0;
+      const peso  = kgPorHoja(r.grosor)||0;
+      porFecha[key].hojas   += hojas;
+      porFecha[key].kgCort  += hojas * peso;
+    });
+    resRango.forEach(r=>{
+      const key = (r.fecha||'').replace(/-/g,'/');
+      if(!porFecha[key]) porFecha[key] = {hojas:0, kg:0};
+      porFecha[key].kg += r.kilos||0;
+    });
+
+    const dias = sortFechas(Object.keys(porFecha));
+    if(!dias.length){
+      tbody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:2rem;">Sin datos</td></tr>';
+    } else {
+      tbody.innerHTML = dias.map(dia=>{
+        const d = porFecha[dia];
+        // Aprovechamiento: necesita kg/hoja para calcularlo — por ahora mostrar ratio kg/hoja como referencia
+        const kgCortD = d.kgCort||0;
+        const pctD    = kgCortD>0 ? Math.max(0,100-(d.kg/kgCortD*100)) : null;
+        const pctColor= pctD===null?'var(--text2)':pctD>=90?'var(--green-t)':pctD>=75?'var(--amber-t)':'var(--red-t)';
+        return '<tr>'+
+          '<td style="font-family:monospace;font-size:12px;">'+dia+'</td>'+
+          '<td style="font-family:monospace;color:var(--amber-t);font-weight:500;">'+d.hojas.toFixed(2)+' hjs</td>'+
+          '<td style="font-family:monospace;color:var(--text2);">'+(kgCortD>0?kgCortD.toFixed(0)+' kg':'—')+'</td>'+
+          '<td style="font-family:monospace;color:var(--red-t);font-weight:500;">'+d.kg.toFixed(1)+' kg</td>'+
+          '<td style="font-family:monospace;color:'+pctColor+';font-weight:600;">'+(pctD!==null?pctD.toFixed(1)+'%':'—')+'</td>'+
+        '</tr>';
+      }).join('');
+    }
+  }
+}
+
+function kpiCard(titulo, valor, color, bg, border, icon){
+  return '<div style="background:'+bg+';border:0.5px solid '+border+';border-radius:12px;padding:16px;">'+
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'+
+      '<i class="ti '+icon+'" style="font-size:14px;color:'+color+';opacity:.7;"></i>'+
+      '<span style="font-size:11px;color:'+color+';opacity:.7;text-transform:uppercase;letter-spacing:.04em;">'+titulo+'</span>'+
+    '</div>'+
+    '<div style="font-size:22px;font-weight:700;font-family:monospace;color:'+color+';">'+valor+'</div>'+
+  '</div>';
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -3625,9 +4100,11 @@ function initSup(){
       if(sobs.length>0) DB.sobrantes=sobs;
       rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();
       if(typeof rAlmacen==='function') rAlmacen();
-    }).catch(()=>{rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();});
+      setTimeout(aplicarRol, 100);
+    }).catch(()=>{rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera(); setTimeout(aplicarRol,100);});
   } else {
     rRail();rFMaq();updMetrics();rReg();rPlanif();rComp();rSA();rPapelera();
+    setTimeout(aplicarRol, 100);
   }
   const sm=document.getElementById('smaqarea'),su=document.getElementById('susrarea');
   const opts=DB.areas.map(a=>'<option value="'+a.id+'">'+a.nombre+'</option>').join('');
@@ -3663,12 +4140,15 @@ function showT(id,el){
   if(id==='t-pap')rPapelera();
   if(id==='t-almacen')rAlmacen();
   if(id==='t-stock')rStockTab();
+  if(id==='t-residuos')rResiduos();
+  if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); }
   if(id==='t-maq')rMaqTab();
   if(id==='t-usr')rUsrTab();
   if(id==='t-excel')rExBtns();
   if(id==='t-resumen')rResumenDiario();
   if(id==='t-ejecutivo')initEjecutivo();
   if(id==='t-exportar')initExportar();
+  setTimeout(aplicarRol, 50);
 }
 function updMetrics(){
   const regs=supArea?DB.registros.filter(r=>r.area===supArea.id):DB.registros;
@@ -4556,6 +5036,8 @@ function cElimReg(){
 
 // INIT
 rAreas();
+// Inicializar aprovechamiento con semana actual
+setTimeout(()=>{ const el=document.getElementById('aprov-btn-semana'); if(el) el.classList.add('active'); },500);
 
 
 </script>
@@ -4594,6 +5076,70 @@ rAreas();
     <div id="calc-totals" style="margin-top:10px;display:none;">
       <div class="calc-total-bar"><div class="calc-total-fill" id="calc-fill"></div></div>
       <div class="calc-total-lbl" id="calc-total-lbl"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- BOTÓN RESIDUOS FIJO -->
+<button id="btn-residuos-fixed" onclick="show('screen-residuos')"
+  style="position:fixed;bottom:24px;left:24px;z-index:100;
+         display:flex;align-items:center;gap:10px;
+         background:var(--bg2);border:1px solid var(--border2);
+         border-radius:14px;padding:14px 20px;cursor:pointer;
+         box-shadow:0 4px 16px rgba(0,0,0,.10);
+         font-size:15px;font-weight:500;color:var(--text2);
+         transition:box-shadow .2s,border-color .2s;">
+  <i class="ti ti-trash" style="font-size:20px;color:var(--text3);"></i>
+  Registro de residuos
+</button>
+
+<!-- PANTALLA RESIDUOS -->
+<div class="screen" id="screen-residuos">
+  <div style="max-width:520px;margin:0 auto;padding:2rem 1rem;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:2rem;">
+      <button onclick="show('screen-login')" style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:20px;"><i class="ti ti-arrow-left"></i></button>
+      <div>
+        <p style="font-size:20px;font-weight:700;color:var(--text);">Registro de Residuos</p>
+        <p style="font-size:12px;color:var(--text2);">Basura y esqueleto de corte</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="lbl">Fecha</label>
+          <input type="date" id="res-fecha" style="padding:9px 12px;font-size:14px;border:0.5px solid var(--border);border-radius:8px;width:100%;">
+        </div>
+        <div>
+          <label class="lbl">Hora</label>
+          <input type="time" id="res-hora" style="padding:9px 12px;font-size:14px;border:0.5px solid var(--border);border-radius:8px;width:100%;">
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label class="lbl">Máquina</label>
+        <select id="res-maq" style="padding:9px 12px;font-size:14px;border:0.5px solid var(--border);border-radius:8px;width:100%;"></select>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label class="lbl">Kilos tirados</label>
+        <div style="position:relative;">
+          <input type="number" id="res-kilos" min="0" step="0.1" placeholder="0.0" style="padding:9px 48px 9px 12px;font-size:18px;font-weight:600;border:0.5px solid var(--border);border-radius:8px;width:100%;font-family:monospace;">
+          <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text3);font-weight:500;">kg</span>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label class="lbl">Observación <span style="color:var(--text3);font-weight:400;">(opcional)</span></label>
+        <textarea id="res-obs" rows="2" placeholder="Ej: esqueleto de corte nogal, sobrantes varios..." style="padding:9px 12px;font-size:13px;border:0.5px solid var(--border);border-radius:8px;width:100%;resize:none;font-family:inherit;"></textarea>
+      </div>
+      <button class="btn btn-amber btn-full" onclick="guardarResiduo()">
+        <i class="ti ti-check"></i> Guardar registro
+      </button>
+    </div>
+
+    <!-- Historial del día -->
+    <div class="card">
+      <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Registros de hoy</p>
+      <div id="res-historial"><p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros hoy</p></div>
     </div>
   </div>
 </div>
