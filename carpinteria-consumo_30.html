@@ -761,17 +761,40 @@ tr:hover td{background:var(--bg3);}
       </div>
       <div style="text-align:center;"><button class="btn btn-ghost btn-sm" onclick="tsinop()"><i class="ti ti-help-circle"></i> No encuentro mi OP</button></div>
       <div id="sinop-p" class="sinop-p" style="display:none;">
-        <p style="font-size:14px;font-weight:600;color:var(--amber-t);margin-bottom:4px;"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:5px;"></i>Registrar sin OP</p>
-        <p style="font-size:12px;color:var(--amber);margin-bottom:12px;">El supervisor asignará la OP después.</p>
-        <div class="fr">
-          <div><label class="lbl">Modelo</label><input type="text" id="sm" placeholder="Ej: 1042"></div>
-          <div><label class="lbl">Color</label><input type="text" id="sc" placeholder="Ej: Roble"></div>
-          <div><label class="lbl">Grosor</label><select id="sg"><option value="">—</option><option value="5.5mm">5.5 mm</option><option value="19mm">19 mm</option><option value="28mm">28 mm</option></select></div>
+        <p style="font-size:14px;font-weight:600;color:var(--amber-t);margin-bottom:4px;"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:5px;"></i>No encontré mi OP</p>
+        <p style="font-size:12px;color:var(--amber);margin-bottom:12px;">Ingresá los datos del mueble y buscaremos una OP coincidente.</p>
+        <div class="fr" style="margin-bottom:10px;">
+          <div><label class="lbl">Modelo</label><input type="text" id="sm" placeholder="Ej: D133A" oninput="buscarOPsSugeridas()"></div>
+          <div style="position:relative;">
+            <label class="lbl">Color</label>
+            <input type="text" id="sc" placeholder="Escribí para buscar..." autocomplete="off"
+              oninput="filtrarColoresSinOP()" onfocus="filtrarColoresSinOP()" style="width:100%;">
+            <div id="sc-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;max-height:160px;overflow-y:auto;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.1);"></div>
+          </div>
+          <div>
+            <label class="lbl">Grosor</label>
+            <select id="sg" onchange="buscarOPsSugeridas()">
+              <option value="">—</option>
+              <option value="5.5mm">5.5 mm</option>
+              <option value="12mm">12 mm</option>
+              <option value="16mm">16 mm</option>
+              <option value="19mm">19 mm</option>
+              <option value="28mm">28 mm</option>
+            </select>
+          </div>
           <div><label class="lbl">Cantidad</label><input type="number" id="sq" placeholder="5" min="1"></div>
         </div>
+
+        <!-- OPs sugeridas -->
+        <div id="sinop-sugeridas" style="display:none;margin-bottom:10px;">
+          <p style="font-size:12px;font-weight:600;color:var(--green-t);margin-bottom:6px;"><i class="ti ti-sparkles" style="font-size:12px;vertical-align:-1px;"></i> OPs que podrían ser la tuya:</p>
+          <div id="sinop-lista" style="border:0.5px solid var(--green);border-radius:8px;overflow:hidden;max-height:200px;overflow-y:auto;"></div>
+          <p style="font-size:11px;color:var(--text3);margin-top:6px;">Si ninguna es la tuya, continuá sin OP.</p>
+        </div>
+
         <label class="lbl">Observaciones</label>
-        <textarea id="so" placeholder="Datos para identificar la OP..." style="margin-bottom:10px;"></textarea>
-        <button class="btn btn-amber btn-full" onclick="confirmarSinOP()"><i class="ti ti-device-floppy"></i> Registrar y continuar</button>
+        <textarea id="so" placeholder="Información adicional para identificar la OP..." style="margin-bottom:10px;"></textarea>
+        <button class="btn btn-amber btn-full" onclick="confirmarSinOP()"><i class="ti ti-device-floppy"></i> Registrar sin OP y continuar</button>
       </div>
     </div>
     <div id="s2" style="display:none;">
@@ -1468,6 +1491,86 @@ function selOI(opId){
   prev.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function confirmarOP(){ if(!osItem){alert('Selecciona una OP');return;} cOP=osItem; irS2(); }
+
+// ═══════════ SIN OP — BÚSQUEDA MEJORADA ═══════════
+
+function filtrarColoresSinOP(){
+  const inp  = document.getElementById('sc'); if(!inp) return;
+  const drop = document.getElementById('sc-dropdown'); if(!drop) return;
+  const q    = inp.value.trim().toLowerCase();
+
+  // Obtener colores únicos del catálogo
+  const colores = [...new Set(CATALOGO_MELAMINAS.map(m=>m.color).filter(Boolean))].sort();
+  const filtrados = q ? colores.filter(c=>c.toLowerCase().includes(q)) : colores;
+
+  if(!filtrados.length){ drop.style.display='none'; return; }
+  drop.style.display='block';
+  drop.innerHTML = filtrados.slice(0,20).map(col=>
+    '<div onclick="selColorSinOP(\''+col.replace(/'/g,"\\'")+'\')" style="padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:0.5px solid var(--border);" '+
+    'onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+col+'</div>'
+  ).join('');
+}
+
+function selColorSinOP(color){
+  const inp  = document.getElementById('sc'); if(!inp) return;
+  const drop = document.getElementById('sc-dropdown'); if(!drop) return;
+  inp.value  = color;
+  drop.style.display = 'none';
+  buscarOPsSugeridas();
+}
+
+// Cerrar dropdown al click fuera
+document.addEventListener('click', e=>{
+  const drop = document.getElementById('sc-dropdown');
+  const inp  = document.getElementById('sc');
+  if(drop && inp && !inp.contains(e.target) && !drop.contains(e.target)){
+    drop.style.display='none';
+  }
+});
+
+function buscarOPsSugeridas(){
+  const modelo = (document.getElementById('sm')?.value||'').trim().toLowerCase();
+  const color  = (document.getElementById('sc')?.value||'').trim().toLowerCase();
+  const grosor = (document.getElementById('sg')?.value||'').toLowerCase();
+
+  const cont   = document.getElementById('sinop-sugeridas');
+  const lista  = document.getElementById('sinop-lista');
+  if(!cont||!lista) return;
+
+  // Necesitamos al menos color o modelo para buscar
+  if(!modelo && !color){ cont.style.display='none'; return; }
+
+  const ops = DB.ops.filter(o=>{
+    if(cArea && o.area!==cArea.id) return false;
+    const mMatch = !modelo || o.modelo.toLowerCase().includes(modelo);
+    const cMatch = !color  || o.color.toLowerCase().includes(color);
+    const gMatch = !grosor || normGrosor(o.grosor)===normGrosor(grosor);
+    return mMatch && cMatch && gMatch;
+  });
+
+  if(!ops.length){ cont.style.display='none'; return; }
+
+  cont.style.display='block';
+  lista.innerHTML = ops.slice(0,8).map(op=>
+    '<div onclick="seleccionarOPdesdeSinOP(\''+op.op+'\')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:0.5px solid var(--border);cursor:pointer;gap:8px;" '+
+    'onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+
+      '<div>'+
+        '<div style="font-family:monospace;font-size:11px;color:var(--text2);">'+op.op+'</div>'+
+        '<div style="font-size:13px;font-weight:500;">'+op.modelo+' · '+op.color+' · '+op.grosor+'</div>'+
+        '<div style="font-size:11px;color:var(--text3);">'+(op.fecha||'')+'</div>'+
+      '</div>'+
+      '<span class="badge b-ok" style="white-space:nowrap;">Seleccionar</span>'+
+    '</div>'
+  ).join('');
+}
+
+function seleccionarOPdesdeSinOP(opId){
+  const op = DB.ops.find(o=>o.op===opId); if(!op) return;
+  // Cerrar el panel sin OP y seleccionar la OP directamente
+  const sp = document.getElementById('sinop-p'); if(sp) sp.style.display='none';
+  selOP(op);
+}
+
 function tsinop(){
   const p=document.getElementById('sinop-p');
   p.style.display=p.style.display==='block'?'none':'block';
@@ -4546,22 +4649,52 @@ function rSA(){
   cont.innerHTML='';
   regs.forEach(r=>{
     const ri=DB.registros.indexOf(r);const an=DB.areas.find(a=>a.id===r.area)?.nombre||r.area;
+
+    // Buscar sugerencias automáticas por color+grosor+modelo
+    const sugeridas = DB.ops.filter(o=>{
+      if(o.area!==r.area) return false;
+      const cMatch = o.color.toLowerCase()===r.color.toLowerCase();
+      const gMatch = normGrosor(o.grosor)===normGrosor(r.grosor);
+      const mMatch = r.modelo && o.modelo.toLowerCase().includes(r.modelo.toLowerCase());
+      return cMatch && gMatch || mMatch && cMatch || mMatch && gMatch;
+    }).slice(0,5);
+
     const card=document.createElement('div');card.className='sac';
-    card.innerHTML='<div class="fb" style="flex-wrap:wrap;gap:8px;margin-bottom:8px;">'+
-      '<div><div class="fc g1" style="margin-bottom:4px;"><span class="badge b-sinop"><i class="ti ti-clock-exclamation" style="font-size:10px;"></i> Sin OP</span><span class="badge b-op">'+an+'</span></div>'+
-      '<p style="font-size:15px;font-weight:600;">Mod. '+r.modelo+' · '+r.color+' · '+r.grosor+'</p>'+
-      '<p style="font-size:12px;color:var(--text2);font-family:monospace;">'+r.operario+' · '+r.maquina+' · '+r.fecha+(r.obs?' · "'+r.obs+'"':'')+'</p>'+
-      '<p style="font-size:12px;color:var(--text2);margin-top:4px;">'+r.materiales.map(m=>m.nombre+': <strong style="font-family:monospace;color:var(--amber-t);">'+m.hojas.toFixed(3)+' hjs</strong>').join(' · ')+'</p>'+
-      '</div><button class="btn btn-amber btn-sm" onclick="togSAP('+ri+')"><i class="ti ti-link"></i> Asignar OP</button></div>'+
+    card.innerHTML=
+      '<div class="fb" style="flex-wrap:wrap;gap:8px;margin-bottom:8px;">'+
+        '<div>'+
+          '<div class="fc g1" style="margin-bottom:4px;"><span class="badge b-sinop"><i class="ti ti-clock-exclamation" style="font-size:10px;"></i> Sin OP</span><span class="badge b-op">'+an+'</span></div>'+
+          '<p style="font-size:15px;font-weight:600;">Mod. '+r.modelo+' · '+r.color+' · '+r.grosor+'</p>'+
+          '<p style="font-size:12px;color:var(--text2);font-family:monospace;">'+r.operario+' · '+r.maquina+' · '+r.fecha+(r.obs?' · "'+r.obs+'"':'')+'</p>'+
+          '<p style="font-size:12px;color:var(--text2);margin-top:4px;">'+r.materiales.map(m=>m.nombre+': <strong style="font-family:monospace;color:var(--amber-t);">'+m.hojas.toFixed(3)+' hjs</strong>').join(' · ')+'</p>'+
+        '</div>'+
+        '<button class="btn btn-amber btn-sm" onclick="togSAP('+ri+')"><i class="ti ti-link"></i> Asignar OP</button>'+
+      '</div>'+
       '<div class="saap" id="sap'+ri+'">'+
-        '<p style="font-size:12px;font-weight:500;margin-bottom:8px;">Buscar la OP correcta</p>'+
+        // Sugerencias automáticas
+        (sugeridas.length ?
+          '<p style="font-size:12px;font-weight:600;color:var(--green-t);margin-bottom:6px;"><i class="ti ti-sparkles" style="font-size:12px;vertical-align:-1px;"></i> Posibles OPs ('+sugeridas.length+'):</p>'+
+          '<div style="border:0.5px solid var(--green);border-radius:8px;overflow:hidden;margin-bottom:10px;">'+
+          sugeridas.map(op=>
+            '<div onclick="selSA('+ri+',\''+op.op+'\')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:0.5px solid var(--border);cursor:pointer;gap:8px;" '+
+            'onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+
+              '<div>'+
+                '<div style="font-family:monospace;font-size:11px;color:var(--text2);">'+op.op+' · '+(op.fecha||'')+'</div>'+
+                '<div style="font-size:13px;font-weight:500;">'+op.modelo+' · '+op.color+' · '+op.grosor+'</div>'+
+              '</div>'+
+              '<span class="badge b-ok" style="white-space:nowrap;">Seleccionar</span>'+
+            '</div>'
+          ).join('')+
+          '</div>'
+        : '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-style:italic;">Sin sugerencias automáticas para este color/grosor.</p>')+
+        // Buscador libre
+        '<p style="font-size:12px;font-weight:500;margin-bottom:6px;color:var(--text2);">Buscar manualmente:</p>'+
         '<div style="position:relative;margin-bottom:8px;"><i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--text3);pointer-events:none;"></i>'+
         '<input type="text" id="sainp'+ri+'" placeholder="OP, modelo, color..." style="padding:8px 10px 8px 32px;font-size:13px;" oninput="fSA('+ri+',\''+r.color+'\',\''+r.grosor+'\')" autocomplete="off"></div>'+
         '<div id="sares'+ri+'" style="border:.5px solid var(--border2);border-radius:8px;overflow:hidden;max-height:200px;overflow-y:auto;margin-bottom:8px;background:var(--bg2);"></div>'+
         '<div id="saconf'+ri+'" style="display:none;"></div>'+
       '</div>';
     cont.appendChild(card);
-    fSA(ri,r.color,r.grosor);
   });
 }
 function togSAP(ri){const p=document.getElementById('sap'+ri);if(!p)return;p.style.display=p.style.display==='block'?'none':'block';}
@@ -4599,7 +4732,15 @@ function confSA(ri,opId){
   r.op=op.op;r.sku=op.sku;r.modelo=op.modelo;r.color=op.color;r.grosor=op.grosor;r.sinAsignar=false;
   const mat=op.materiales.find(m=>m.skuMat===r.materiales[0]?.skuMat)||op.materiales[0];
   if(mat&&r.materiales[0]){r.materiales[0].nombre=mat.nombre;r.materiales[0].skuMat=mat.skuMat;r.materiales[0].planificado=mat.planificado;}
-  if(r._fbId && typeof fbActualizarRegistro==='function') fbActualizarRegistro(r._fbId, r);
+  // Pausar onSnapshot para que no sobreescriba el cambio local
+  if(typeof fbPause==='function') fbPause(5000);
+  if(r._fbId && typeof fbActualizarRegistro==='function'){
+    fbActualizarRegistro(r._fbId, r).then(()=>{
+      console.log('✓ Registro asignado guardado en Firebase:', r._fbId);
+    }).catch(e=>console.error('Error guardando asignación:', e));
+  } else {
+    console.warn('Sin _fbId — el registro no se puede guardar en Firebase');
+  }
   updMetrics();rReg();rPlanif();rComp();rSA();
 }
 
@@ -4855,16 +4996,13 @@ function procDynamicsTabular(wb,fileName,fechaProd){
     const nom    = row[12] ? String(row[12]).trim() : '';
     const planif = row[13];
     // Fecha PT viene en col A (FechaVenc) — calcular fecha carpintería = PT - 4 días hábiles
-    let fechaPT = null, fechaCarp = null;
+    let fechaPT = null;
     if(row[0]){
       fechaPT = parseFechaExcel(row[0]);
-      if(fechaPT && !isNaN(fechaPT.getTime())){
-        fechaCarp = restarDiasHabiles(fechaPT, 3);
-      }
     }
-    // Si el usuario ingresó fecha manual, usarla como carpintería
-    const fechaFila = fechaProd || (fechaCarp ? fechaToStr(fechaCarp) : '');
+    // Usar siempre la fecha de PT directamente
     const fechaPTStr = fechaPT && !isNaN(fechaPT.getTime()) ? fechaToStr(fechaPT) : '';
+    const fechaFila = fechaProd || fechaPTStr;
     if(!opId||!sku) return;
     // Filtrar: SKU debe estar en el catálogo (incluye MDFs sin "MELAMINA" en el nombre)
     const mat=catBySku[sku];
@@ -4954,7 +5092,7 @@ function finalizarCarga(opMap,ops,mats,errs,fileName,formato){
   let fechaInfo = '';
   if(fechasUnicas.length){
     fechaInfo = '<div style="margin-top:6px;font-size:11px;opacity:.85;">'+
-      '📅 Carpintería: <strong>'+fechasUnicas.join(', ')+'</strong>'+
+      '📅 Fecha PT: <strong>'+fechasUnicas.join(', ')+'</strong>'+
       (fechasPT.length?' &nbsp;·&nbsp; PT: <strong>'+fechasPT.join(', ')+'</strong>':'')+
     '</div>';
   }
