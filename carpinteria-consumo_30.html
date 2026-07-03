@@ -764,12 +764,13 @@ tr:hover td{background:var(--bg3);}
         <p style="font-size:14px;font-weight:600;color:var(--amber-t);margin-bottom:4px;"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:5px;"></i>No encontré mi OP</p>
         <p style="font-size:12px;color:var(--amber);margin-bottom:12px;">Ingresá los datos del mueble y buscaremos una OP coincidente.</p>
         <div class="fr" style="margin-bottom:10px;">
-          <div><label class="lbl">Modelo</label><input type="text" id="sm" placeholder="Ej: D133A" oninput="buscarOPsSugeridas()"></div>
+          <div><label class="lbl">Modelo <span style="color:var(--red-t);">*</span></label><input type="text" id="sm" placeholder="Ej: D133A" autocomplete="off" oninput="validarModeloSinOP();buscarOPsSugeridas()" style="width:100%;"><p id="sm-err" style="font-size:11px;color:var(--red-t);margin-top:3px;display:none;"><i class="ti ti-alert-circle" style="font-size:11px;"></i> El modelo es obligatorio. Ej: D133A, FB-6086</p></div>
           <div style="position:relative;">
             <label class="lbl">Color</label>
             <input type="text" id="sc" placeholder="Escribí para buscar..." autocomplete="off"
-              oninput="filtrarColoresSinOP()" onfocus="filtrarColoresSinOP()" style="width:100%;">
+              oninput="filtrarColoresSinOP()" onfocus="filtrarColoresSinOP()" onblur="validarColorSinOP()" style="width:100%;">
             <div id="sc-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;max-height:160px;overflow-y:auto;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.1);"></div>
+            <p id="sc-err" style="font-size:11px;color:var(--red-t);margin-top:3px;display:none;"><i class="ti ti-alert-circle" style="font-size:11px;"></i> Elegí un color de la lista</p>
           </div>
           <div>
             <label class="lbl">Grosor</label>
@@ -803,7 +804,7 @@ tr:hover td{background:var(--bg3);}
       <p class="st">Tipo de corte</p>
       <div style="display:flex;gap:8px;margin-bottom:1rem;">
         <div class="topt sn" id="tn" onclick="stipo('normal')"><i class="ti ti-scissors"></i><span>Corte normal</span></div>
-        <div class="topt" id="tr2" onclick="stipo('recorte')"><i class="ti ti-refresh"></i><span>Re-corte</span></div>
+        <div class="topt" id="tr2" onclick="stipo('recorte')"><i class="ti ti-alert-triangle"></i><span>Faltante</span></div>
       </div>
       <div class="rpanel" id="rp" style="display:none;">
         <label class="lbl" style="color:var(--amber-t);">Motivo</label>
@@ -893,7 +894,7 @@ tr:hover td{background:var(--bg3);}
           </div>
           <div class="frow" style="flex-wrap:wrap;gap:8px;">
             <input type="text" id="fop" placeholder="Filtrar OP..." oninput="rReg()" style="max-width:160px;">
-            <select id="fest" onchange="rReg()"><option value="">Todos</option><option value="ok">Registrados</option><option value="pend">Pendientes</option><option value="rec">Re-cortes</option></select>
+            <select id="fest" onchange="rReg()"><option value="">Todos</option><option value="ok">Registrados</option><option value="pend">Pendientes</option><option value="rec">Faltantes</option></select>
             <select id="fmaq" onchange="rReg()"><option value="">Todas las máquinas</option></select>
             <select id="freg-fecha" onchange="rReg()" style="max-width:160px;"><option value="">Todas las fechas</option></select>
             <select id="freg-orden" onchange="rReg()" style="max-width:180px;">
@@ -1494,6 +1495,36 @@ function confirmarOP(){ if(!osItem){alert('Selecciona una OP');return;} cOP=osIt
 
 // ═══════════ SIN OP — BÚSQUEDA MEJORADA ═══════════
 
+
+function validarModeloSinOP(){
+  const inp = document.getElementById('sm'); if(!inp) return;
+  const err = document.getElementById('sm-err'); if(!err) return;
+  const val = inp.value.trim();
+  const INVALIDOS = ['no se','no sé','faltante','falta','sin modelo','desconocido','','n/a','na','-','--'];
+  if(val && !INVALIDOS.includes(val.toLowerCase())){
+    err.style.display='none';
+    inp.style.borderColor='';
+  } else if(val){
+    err.style.display='block';
+    inp.style.borderColor='var(--red)';
+  }
+}
+
+function validarColorSinOP(){
+  const inp = document.getElementById('sc'); if(!inp) return;
+  const err = document.getElementById('sc-err'); if(!err) return;
+  const val = inp.value.trim();
+  if(!val){ err.style.display='none'; return; }
+  const colorValido = CATALOGO_MELAMINAS.some(x=>x.color.toLowerCase()===val.toLowerCase());
+  if(colorValido){
+    err.style.display='none';
+    inp.style.borderColor='var(--green)';
+  } else {
+    err.style.display='block';
+    inp.style.borderColor='var(--red)';
+  }
+}
+
 function filtrarColoresSinOP(){
   const inp  = document.getElementById('sc'); if(!inp) return;
   const drop = document.getElementById('sc-dropdown'); if(!drop) return;
@@ -1515,7 +1546,9 @@ function selColorSinOP(color){
   const inp  = document.getElementById('sc'); if(!inp) return;
   const drop = document.getElementById('sc-dropdown'); if(!drop) return;
   inp.value  = color;
+  inp.style.borderColor = 'var(--green)';
   drop.style.display = 'none';
+  const err = document.getElementById('sc-err'); if(err) err.style.display='none';
   buscarOPsSugeridas();
 }
 
@@ -1566,9 +1599,28 @@ function buscarOPsSugeridas(){
 
 function seleccionarOPdesdeSinOP(opId){
   const op = DB.ops.find(o=>o.op===opId); if(!op) return;
-  // Cerrar el panel sin OP y seleccionar la OP directamente
-  const sp = document.getElementById('sinop-p'); if(sp) sp.style.display='none';
-  selOP(op);
+
+  // Cerrar el panel sin OP
+  const sp = document.getElementById('sinop-p');
+  if(sp) sp.style.display='none';
+
+  // Setear osItem igual que si la hubiera encontrado en la búsqueda normal
+  osItem = op;
+
+  // Actualizar el header de la pantalla S1
+  const pop  = document.getElementById('pop');
+  const pdet = document.getElementById('pdet');
+  if(pop)  pop.textContent  = op.op + ' — SKU ' + op.sku;
+  if(pdet) pdet.textContent = 'Mod. '+op.modelo+' · '+op.color+' · '+op.grosor+' · '+op.cantidad+' uds';
+
+  // Mostrar aviso de sobrantes si aplica
+  if(typeof mostrarAvisoSobrantes === 'function') mostrarAvisoSobrantes(op);
+
+  // Refrescar la lista para que quede seleccionada visualmente
+  fops();
+
+  // Ir directo a confirmar — el operario ya eligió la OP
+  confirmarOP();
 }
 
 function tsinop(){
@@ -1580,7 +1632,27 @@ function confirmarSinOP(){
   const m=document.getElementById('sm').value.trim();
   const c=document.getElementById('sc').value.trim();
   const g=document.getElementById('sg').value;
-  if(!m||!c||!g){alert('Completa modelo, color y grosor');return;}
+
+  // Validar modelo
+  const INVALIDOS = ['no se','no sé','faltante','falta','sin modelo','desconocido','','n/a','na','-','--'];
+  if(!m || INVALIDOS.includes(m.toLowerCase())){
+    const err=document.getElementById('sm-err');
+    if(err){err.style.display='block'; document.getElementById('sm').style.borderColor='var(--red)';}
+    document.getElementById('sm').focus();
+    return;
+  }
+
+  // Validar color — debe existir en el catálogo
+  const colorValido = CATALOGO_MELAMINAS.some(x=>x.color.toLowerCase()===c.toLowerCase());
+  if(!colorValido){
+    const err=document.getElementById('sc-err');
+    if(err){err.style.display='block'; document.getElementById('sc').style.borderColor='var(--red)';}
+    filtrarColoresSinOP(); // mostrar sugerencias
+    document.getElementById('sc').focus();
+    return;
+  }
+
+  if(!g){alert('Seleccioná el grosor');return;}
   cOP={op:'SIN-OP-'+Date.now(),sku:'—',modelo:m,color:c,grosor:g,
     cantidad:parseInt(document.getElementById('sq').value)||0,
     materiales:[{nombre:'Material '+c+' '+g,skuMat:'—',planificado:0}],
@@ -1599,7 +1671,7 @@ function stipo(t){
   cTipo=t;
   document.getElementById('tn').className='topt'+(t==='normal'?' sn':'');
   document.getElementById('tr2').className='topt'+(t==='recorte'?' sr':'');
-  document.getElementById('rp').style.display=t==='recorte'?'block':'none';
+  document.getElementById('rp').style.display='none'; // Faltante no necesita motivo
 }
 document.addEventListener('change',e=>{
   if(e.target.id==='rmt') document.getElementById('rotro').style.display=e.target.value==='Otro'?'block':'none';
@@ -1633,7 +1705,7 @@ function rMatList(){
 
 // ═══════════ S3: LÁMINAS ═══════════
 function irS3(){
-  if(cTipo==='recorte'&&!document.getElementById('rmt').value){alert('Selecciona el motivo');return;}
+  // Faltante no requiere motivo adicional
   if(cMatIdx===null){alert('Selecciona un material');return;}
   cCons={}; cLams={}; cLCnt=0;
   const m=cOP.materiales[cMatIdx];
@@ -2153,11 +2225,11 @@ function updTotal(){
 
 // ═══════════ S4: CONFIRMAR ═══════════
 function irS4(){
-  const motivo=cTipo==='recorte'?(document.getElementById('rmt').value==='Otro'?document.getElementById('rotrotxt').value:document.getElementById('rmt').value):'';
+  const motivo=cTipo==='recorte'?'Faltante':'';
   const m=cOP.materiales[cMatIdx];
   let html='<div class="rmeta">';
   html+=mkM('OP',cOP.sinAsignar?'Sin asignar':cOP.op)+mkM('Modelo',cOP.modelo)+mkM('Color',cOP.color)+mkM('Grosor',cOP.grosor)+mkM('Máquina',cMaq);
-  html+=mkM('Tipo',cTipo==='recorte'?'<span class="badge b-rec">Re-corte</span>':'<span class="badge b-ok">Normal</span>');
+  html+=mkM('Tipo',cTipo==='recorte'?'<span class="badge b-rec">Faltante</span>':'<span class="badge b-ok">Normal</span>');
   if(motivo)html+=mkM('Motivo',motivo);
   html+='</div>';
   const otras=Object.entries(cCons.opT||{}).filter(([op])=>op!==cOP.op).map(([op,h])=>op+': '+h.toFixed(3)+' hjs').join(', ')||'—';
@@ -2219,7 +2291,7 @@ function guardarSinJustif(){
 }
 
 function _ejecutarGuardar(justif){
-  const motivo=cTipo==='recorte'?(document.getElementById('rmt').value==='Otro'?document.getElementById('rotrotxt').value:document.getElementById('rmt').value):'';
+  const motivo=cTipo==='recorte'?'Faltante':'';
   const fecha=new Date().toLocaleDateString('es-CL');
   const fechaRegistro=new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
   const m=cOP.materiales[cMatIdx];
@@ -4258,7 +4330,7 @@ function updMetrics(){
   const ops=supArea?DB.ops.filter(o=>o.area===supArea.id):DB.ops;
   document.getElementById('m1').textContent=ops.length;
   document.getElementById('m2').textContent=regs.length;
-  document.getElementById('m3').textContent=regs.filter(r=>r.tipo==='recorte').length;
+  document.getElementById('m3').textContent=regs.filter(r=>r.tipo==='recorte'||r.tipo==='faltante').length;
   const sa=DB.registros.filter(r=>r.sinAsignar);
   const b=document.getElementById('sabadge');if(b){b.style.display=sa.length?'inline':'none';b.textContent=sa.length;}
 }
@@ -4333,12 +4405,12 @@ function rReg(){
     }
     if(fop&&!r.op.toLowerCase().includes(fop))return;
     if(fest==='pend')return;
-    if(fest==='rec'&&r.tipo!=='recorte')return;
+    if(fest==='rec'&&r.tipo!=='recorte'&&r.tipo!=='faltante')return;
     if(fmq&&r.maquina!==fmq)return;
     const an=DB.areas.find(a=>a.id===r.area)?.nombre||r.area;
     r.materiales.forEach((m,mi)=>{
       const ri=DB.registros.indexOf(r);
-      const tipH=r.tipo==='recorte'?'<span class="badge b-rec">Re-corte</span>'+(r.motivo?'<br><span style="font-size:10px;color:var(--text2);">'+r.motivo+'</span>':''):'<span class="badge b-ok">Normal</span>';
+      const tipH=r.tipo==='recorte'?'<span class="badge b-rec">Faltante</span>':'<span class="badge b-ok">Normal</span>';
       const del=mi===0?'<button class="btn btn-red btn-sm" onclick="abrirMR('+ri+')" style="opacity:.5;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5"><i class="ti ti-trash"></i></button>':'';
       // Plan. y Diferencia
       const plan = m.planificado>0 ? m.planificado : 0;
