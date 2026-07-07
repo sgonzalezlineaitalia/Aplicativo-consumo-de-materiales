@@ -877,6 +877,7 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-excel',this)"><i class="ti ti-file-spreadsheet"></i> Cargar Excel</div>
         <div class="ni" onclick="showT('t-maq',this)"><i class="ti ti-tool"></i> Máquinas</div>
         <div class="ni" onclick="showT('t-usr',this)"><i class="ti ti-users"></i> Operarios</div>
+        <div class="ni" onclick="showT('t-operadores',this)"><i class="ti ti-users"></i> Registros operadores</div>
         <div class="ni" onclick="showT('t-aprovechamiento',this)"><i class="ti ti-chart-pie"></i> Aprovechamiento</div>
         <div class="ni" onclick="showT('t-residuos',this)"><i class="ti ti-trash"></i> Residuos</div>
         <div class="ni" onclick="showT('t-stock',this)"><i class="ti ti-puzzle"></i> Piezas stock</div>
@@ -1103,9 +1104,79 @@ tr:hover td{background:var(--bg3);}
 
 
 
+
+        <div class="stab" id="t-operadores">
+          <p class="ptitle">Registros Operadores</p>
+          <p class="psub">Hojas cortadas por operador en el período seleccionado</p>
+
+          <!-- Filtros de rango fecha+hora -->
+          <div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;padding:16px;margin-bottom:1.5rem;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">
+              <div>
+                <label class="lbl">Desde</label>
+                <div style="display:grid;grid-template-columns:1fr auto;gap:6px;">
+                  <input type="date" id="op-desde-f" onchange="rOperadores()">
+                  <input type="time" id="op-desde-h" value="00:00" onchange="rOperadores()" style="width:90px;">
+                </div>
+              </div>
+              <div>
+                <label class="lbl">Hasta</label>
+                <div style="display:grid;grid-template-columns:1fr auto;gap:6px;">
+                  <input type="date" id="op-hasta-f" onchange="rOperadores()">
+                  <input type="time" id="op-hasta-h" value="23:59" onchange="rOperadores()" style="width:90px;">
+                </div>
+              </div>
+            </div>
+            <!-- Operador y accesos rápidos -->
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+              <div style="flex:1;min-width:200px;">
+                <label class="lbl">Operador</label>
+                <select id="op-filtro-usr" onchange="rOperadores()" style="width:100%;">
+                  <option value="">Todos los operadores</option>
+                </select>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('hoy')">Hoy</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('ayer')">Ayer</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('semana')">Esta semana</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('semana-ant')">Semana ant.</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('mes')">Este mes</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- KPIs totales -->
+          <div id="op-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.5rem;"></div>
+
+          <!-- Tarjetas por operador -->
+          <div id="op-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:1.5rem;"></div>
+
+          <!-- Tabla detalle -->
+          <div class="card">
+            <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Detalle de registros</p>
+            <div class="dtw"><table>
+              <thead><tr><th>Operario</th><th>Registrado</th><th>OP</th><th>Material</th><th>Hojas</th><th>Tipo</th></tr></thead>
+              <tbody id="op-tabla"></tbody>
+            </table></div>
+          </div>
+        </div>
         <div class="stab" id="t-aprovechamiento">
           <p class="ptitle">Aprovechamiento de Material</p>
           <p class="psub">Hojas cortadas vs residuos — por máquina y total</p>
+
+          <!-- Gráfico semanal siempre visible -->
+          <div class="card" style="margin-bottom:1.5rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <p style="font-size:13px;font-weight:600;">Aprovechamiento semanal</p>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-ghost btn-sm" onclick="aprovGrafSemanas(8)">8 sem</button>
+                <button class="btn btn-ghost btn-sm" onclick="aprovGrafSemanas(12)">12 sem</button>
+                <button class="btn btn-ghost btn-sm" onclick="aprovGrafSemanas(16)">16 sem</button>
+              </div>
+            </div>
+            <canvas id="aprov-chart" style="width:100%;height:220px;display:block;"></canvas>
+            <div id="aprov-chart-legend" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--text2);font-family:monospace;"></div>
+          </div>
 
           <!-- Selector de rango -->
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:1.5rem;">
@@ -3945,15 +4016,34 @@ function guardarResiduo(){
 }
 
 function rResidualHoy(){
-  const hoy = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'/');
   const cont = document.getElementById('res-historial'); if(!cont) return;
-  const hoyReg = (DB.residuos||[]).filter(r=>r.fecha===hoy).sort((a,b)=>b.hora.localeCompare(a.hora));
-  if(!hoyReg.length){ cont.innerHTML='<p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros hoy</p>'; return; }
-  cont.innerHTML = hoyReg.map(r=>
-    '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:0.5px solid var(--border);">'+
-      '<div><span style="font-size:13px;font-weight:500;">'+r.kilos+' kg</span> · <span style="font-size:12px;color:var(--text2);">'+r.maquina+'</span>'+
-      (r.obs?'<br><span style="font-size:11px;color:var(--text3);">'+r.obs+'</span>':'')+'</div>'+
-      '<span style="font-size:11px;font-family:monospace;color:var(--text3);">'+r.hora+'</span>'+
+  // Parsear fecha para ordenar correctamente
+  const parseFR = r => {
+    const f = (r.fecha||'').replace(/-/g,'/');
+    const m = f.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    const [hh,mm] = (r.hora||'00:00').split(':');
+    if(!m) return new Date(0);
+    return new Date(+m[3], +m[2]-1, +m[1], +hh||0, +mm||0);
+  };
+  // Últimos 10 registros ordenados de más nuevo a más viejo
+  const ultimos = [...(DB.residuos||[])]
+    .sort((a,b) => parseFR(b) - parseFR(a))
+    .slice(0,10);
+  if(!ultimos.length){
+    cont.innerHTML='<p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros aún</p>';
+    return;
+  }
+  cont.innerHTML = ultimos.map(r=>
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:0.5px solid var(--border);gap:8px;">'+
+      '<div>'+
+        '<div style="font-size:13px;font-weight:600;color:var(--red-t);">'+r.kilos+' kg</div>'+
+        '<div style="font-size:12px;color:var(--text2);">'+r.maquina+'</div>'+
+        (r.obs?'<div style="font-size:11px;color:var(--text3);margin-top:2px;">'+r.obs+'</div>':'')+
+      '</div>'+
+      '<div style="text-align:right;flex-shrink:0;">'+
+        '<div style="font-size:11px;font-family:monospace;color:var(--text2);">'+r.hora+'</div>'+
+        '<div style="font-size:10px;color:var(--text3);">'+(r.fecha||'')+'</div>'+
+      '</div>'+
     '</div>'
   ).join('');
 }
@@ -3988,7 +4078,16 @@ function rResiduos(){
     if(ffecha && r.fecha!==ffecha) return false;
     if(fmaq   && r.maquina!==fmaq) return false;
     return true;
-  }).sort((a,b)=>(b.fechaHora||'').localeCompare(a.fechaHora||''));
+  }).sort((a,b)=>{
+    // Parsear fecha dd/mm/yyyy HH:MM correctamente
+    const parseFH = f => {
+      if(!f) return new Date(0);
+      const m = f.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+      if(!m) return new Date(0);
+      return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0));
+    };
+    return parseFH(b.fechaHora||b.fecha) - parseFH(a.fechaHora||a.fecha);
+  });
 
   // KPIs
   const totalKg = filtrados.reduce((s,r)=>s+r.kilos,0);
@@ -4066,6 +4165,153 @@ function calcKgCortados(registros){
     const kg    = kgPorHoja(r.grosor);
     return s + (kg ? hojas * kg : 0);
   }, 0);
+}
+
+
+// ═══════════ GRÁFICO APROVECHAMIENTO SEMANAL ═══════════
+let aprovGrafN = 8; // semanas a mostrar
+
+function aprovGrafSemanas(n){
+  aprovGrafN = n;
+  dibujarGrafAprov();
+}
+
+function getLunSemana(fecha){
+  const d = new Date(fecha); d.setHours(0,0,0,0);
+  const dow = d.getDay();
+  d.setDate(d.getDate() - (dow===0?6:dow-1));
+  return d;
+}
+
+function dibujarGrafAprov(){
+  const cv = document.getElementById('aprov-chart'); if(!cv) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.offsetWidth||cv.parentElement?.offsetWidth||600;
+  const H = 220;
+  cv.width = W * (window.devicePixelRatio||1);
+  cv.height = H * (window.devicePixelRatio||1);
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.scale(window.devicePixelRatio||1, window.devicePixelRatio||1);
+
+  const allR   = supArea ? DB.registros.filter(r=>r.area===supArea.id) : DB.registros;
+  const allRes = DB.residuos||[];
+
+  // Calcular últimas N semanas
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const semanas = [];
+  for(let i=aprovGrafN-1; i>=0; i--){
+    const lun = new Date(getLunSemana(hoy));
+    lun.setDate(lun.getDate() - i*7);
+    const dom = new Date(lun); dom.setDate(lun.getDate()+6);
+    semanas.push({lun, dom, label:'S'+(aprovGrafN-i)});
+  }
+
+  // Calcular aprovechamiento por semana
+  const datos = semanas.map(({lun,dom,label})=>{
+    const regsS = allR.filter(r=>{
+      const f = r.fechaRegistro||r.fecha||'';
+      const m = f.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if(!m) return false;
+      const d = new Date(+m[3],+m[2]-1,+m[1]); d.setHours(0,0,0,0);
+      return d>=lun && d<=dom;
+    });
+    const resS = allRes.filter(r=>{
+      const m = (r.fecha||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if(!m) return false;
+      const d = new Date(+m[3],+m[2]-1,+m[1]); d.setHours(0,0,0,0);
+      return d>=lun && d<=dom;
+    });
+    const kgCort = calcKgCortados(regsS);
+    const kgRes  = resS.reduce((s,r)=>s+(r.kilos||0),0);
+    const pct    = kgCort>0 ? Math.max(0, 100-(kgRes/kgCort*100)) : null;
+    // Label: semana del dd/mm
+    const dd=String(lun.getDate()).padStart(2,'0'), mm=String(lun.getMonth()+1).padStart(2,'0');
+    return {label: dd+'/'+mm, pct, kgCort, kgRes, regsS};
+  });
+
+  // ── Dibujar ──
+  ctx.clearRect(0,0,W,H);
+  const pad = {l:40, r:16, t:16, b:40};
+  const gW = W-pad.l-pad.r;
+  const gH = H-pad.t-pad.b;
+  const n  = datos.length;
+  const barW = Math.max(8, gW/n*0.55);
+  const gap  = gW/n;
+
+  // Fondo suave
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg2').trim()||'#F7F8FA';
+  ctx.beginPath(); ctx.roundRect(0,0,W,H,12); ctx.fill();
+
+  // Líneas guía
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border').trim()||'#E2E5EB';
+  ctx.lineWidth = 1;
+  [0,25,50,75,100].forEach(pv=>{
+    const y = pad.t + gH*(1-pv/100);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l+gW, y); ctx.stroke();
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text3').trim()||'#9AA0AE';
+    ctx.font = '10px monospace'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(pv+'%', pad.l-6, y);
+  });
+
+  // Meta 90%
+  const yMeta = pad.t + gH*(1-90/100);
+  ctx.strokeStyle = '#16A34A44'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(pad.l, yMeta); ctx.lineTo(pad.l+gW, yMeta); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle='#16A34A'; ctx.font='10px monospace'; ctx.textAlign='left';
+  ctx.fillText('meta 90%', pad.l+4, yMeta-6);
+
+  // Barras y línea
+  const pts = [];
+  datos.forEach((d,i)=>{
+    const x = pad.l + gap*(i+0.5);
+    if(d.pct !== null){
+      const barH = gH * d.pct/100;
+      const y    = pad.t + gH - barH;
+      const color= d.pct>=90?'#16A34A':d.pct>=75?'#D97706':'#DC2626';
+      // Barra
+      ctx.fillStyle = color+'33';
+      ctx.beginPath(); ctx.roundRect(x-barW/2, y, barW, barH, [4,4,0,0]); ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.roundRect(x-barW/2, y, barW, 3, 2); ctx.fill();
+      // Valor encima
+      ctx.fillStyle = color; ctx.font='bold 11px monospace'; ctx.textAlign='center';
+      ctx.fillText(d.pct.toFixed(0)+'%', x, y-6);
+      pts.push({x, y: y});
+    } else {
+      pts.push(null);
+    }
+    // Label eje X
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim()||'#5A6272';
+    ctx.font='10px monospace'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(d.label, x, pad.t+gH+6);
+  });
+
+  // Línea de tendencia
+  const validos = pts.filter(Boolean);
+  if(validos.length>1){
+    ctx.strokeStyle='#2563EB88'; ctx.lineWidth=2; ctx.setLineDash([]);
+    ctx.beginPath();
+    validos.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+    ctx.stroke();
+    // Puntos
+    validos.forEach(p=>{
+      ctx.fillStyle='#2563EB'; ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill();
+    });
+  }
+
+  // Leyenda
+  const legend = document.getElementById('aprov-chart-legend');
+  if(legend){
+    const conDatos = datos.filter(d=>d.pct!==null);
+    const prom = conDatos.length ? conDatos.reduce((s,d)=>s+d.pct,0)/conDatos.length : null;
+    legend.innerHTML =
+      '<span style="color:#16A34A;">■ ≥90% (meta)</span>'+
+      '<span style="color:#D97706;">■ 75-90%</span>'+
+      '<span style="color:#DC2626;">■ <75%</span>'+
+      '<span style="color:#2563EB;">— tendencia</span>'+
+      (prom!==null?'<span style="color:var(--text2);">Promedio: <strong>'+prom.toFixed(1)+'%</strong></span>':'');
+  }
 }
 
 // ═══════════ APROVECHAMIENTO ═══════════
@@ -4265,6 +4511,176 @@ function kpiCard(titulo, valor, color, bg, border, icon){
   '</div>';
 }
 
+
+// ═══════════ EFECTIVIDAD OPERADORES ═══════════
+
+function opSetRango(rango){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  let desde, hasta;
+  if(rango==='hoy'){
+    desde = new Date(hoy); hasta = new Date(hoy);
+  } else if(rango==='ayer'){
+    desde = new Date(hoy); desde.setDate(hoy.getDate()-1);
+    hasta = new Date(desde);
+  } else if(rango==='semana'){
+    const dow = hoy.getDay();
+    desde = new Date(hoy); desde.setDate(hoy.getDate()-(dow===0?6:dow-1));
+    hasta = new Date(hoy);
+  } else if(rango==='semana-ant'){
+    const dow = hoy.getDay();
+    const lunEsta = new Date(hoy); lunEsta.setDate(hoy.getDate()-(dow===0?6:dow-1));
+    desde = new Date(lunEsta); desde.setDate(lunEsta.getDate()-7);
+    hasta = new Date(desde); hasta.setDate(desde.getDate()+6);
+  } else if(rango==='mes'){
+    desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    hasta = new Date(hoy);
+  }
+  // Setear campos
+  const fmt = d => d.toISOString().slice(0,10);
+  document.getElementById('op-desde-f').value = fmt(desde);
+  document.getElementById('op-hasta-f').value  = fmt(hasta);
+  document.getElementById('op-desde-h').value  = '00:00';
+  document.getElementById('op-hasta-h').value  = '23:59';
+  rOperadores();
+}
+
+function opParseFechaReg(r){
+  const f = r.fechaRegistro || '';
+  if(!f) return null;
+  // Soportar dd-mm-yyyy HH:MM a.m./p.m. y dd/mm/yyyy HH:MM
+  const m = f.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?:\s*(a\.?\s*m\.?|p\.?\s*m\.?))?)?/i);
+  if(!m) return null;
+  let h = +(m[4]||0), min = +(m[5]||0);
+  const ap = (m[6]||'').replace(/\.\s*/g,'').toLowerCase();
+  if(ap==='pm'&&h<12) h+=12;
+  if(ap==='am'&&h===12) h=0;
+  return new Date(+m[3], +m[2]-1, +m[1], h, min);
+}
+
+function rOperadores(){
+  const desdeF = document.getElementById('op-desde-f')?.value;
+  const hastaF = document.getElementById('op-hasta-f')?.value;
+  const desdeH = document.getElementById('op-desde-h')?.value || '00:00';
+  const hastaH = document.getElementById('op-hasta-h')?.value || '23:59';
+
+  if(!desdeF||!hastaF) return;
+
+  const [dy,dm,dd] = desdeF.split('-'); const [hy,hm,hd] = hastaF.split('-');
+  const [dh,dmi] = desdeH.split(':'); const [hh,hmi] = hastaH.split(':');
+  const desde = new Date(+dy,+dm-1,+dd,+dh,+dmi);
+  const hasta  = new Date(+hy,+hm-1,+hd,+hh,+hmi);
+
+  const allR = supArea ? DB.registros.filter(r=>r.area===supArea.id) : DB.registros;
+
+  // Poblar selector de operadores
+  const selUsr = document.getElementById('op-filtro-usr');
+  if(selUsr){
+    const cur = selUsr.value;
+    const nombres = [...new Set(allR.map(r=>r.operario).filter(Boolean))].sort();
+    selUsr.innerHTML = '<option value="">Todos los operadores</option>' +
+      nombres.map(n=>'<option value="'+n+'"'+(n===cur?' selected':'')+'>'+n+'</option>').join('');
+    if(cur) selUsr.value = cur;
+  }
+  const filtroUsr = selUsr?.value || '';
+
+  // Filtrar por rango fecha+hora usando fechaRegistro
+  const regs = allR.filter(r=>{
+    const d = opParseFechaReg(r);
+    if(!d) return false;
+    if(d < desde || d > hasta) return false;
+    if(filtroUsr && r.operario !== filtroUsr) return false;
+    return true;
+  });
+
+  // Agrupar por operario
+  const byOp = {};
+  regs.forEach(r=>{
+    const nombre = r.operario || 'Sin nombre';
+    if(!byOp[nombre]) byOp[nombre] = {hojas:0, regs:[], faltantes:0};
+    const hojas = r.materiales?.[0]?.hojas || 0;
+    byOp[nombre].hojas += hojas;
+    byOp[nombre].regs.push(r);
+    if(r.tipo==='recorte') byOp[nombre].faltantes++;
+  });
+
+  const ops = Object.entries(byOp).sort((a,b)=>b[1].hojas-a[1].hojas);
+  const totalHojas = regs.reduce((s,r)=>s+(r.materiales?.[0]?.hojas||0),0);
+  const totalRegs  = regs.length;
+
+  // ── KPIs ──
+  const kpiDiv = document.getElementById('op-kpis');
+  if(kpiDiv){
+    kpiDiv.innerHTML =
+      kpiCard('Operadores activos', ops.length+'', 'var(--blue-t)', 'var(--blue-bg)', 'var(--blue)', 'ti-users')+
+      kpiCard('Total hojas', totalHojas.toFixed(2), 'var(--amber-t)', 'var(--amber-bg)', 'var(--amber)', 'ti-stack-2')+
+      kpiCard('Total registros', totalRegs+'', 'var(--text)', 'var(--bg3)', 'var(--border)', 'ti-clipboard-list')+
+      kpiCard('Faltantes', regs.filter(r=>r.tipo==='recorte').length+'', 'var(--red-t)', 'var(--red-bg)', 'var(--red)', 'ti-alert-triangle');
+  }
+
+  // ── Tarjetas por operador ──
+  const maxHojas = ops.length ? ops[0][1].hojas : 1;
+  const cards = document.getElementById('op-cards');
+  if(cards){
+    if(!ops.length){
+      cards.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:13px;padding:2rem;">Sin registros en este período</div>';
+    } else {
+      cards.innerHTML = ops.map(([nombre, d])=>{
+        const ini = nombre.split(' ').map(p=>p[0]||'').join('').slice(0,2).toUpperCase();
+        const pct = maxHojas>0 ? (d.hojas/maxHojas*100) : 0;
+        const promHojas = d.regs.length>0 ? d.hojas/d.regs.length : 0;
+        return '<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;padding:16px;">'+
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'+
+            '<div class="uav" style="width:36px;height:36px;font-size:13px;flex-shrink:0;">'+ini+'</div>'+
+            '<div><div style="font-size:14px;font-weight:600;">'+nombre+'</div>'+
+            '<div style="font-size:11px;color:var(--text2);">'+d.regs.length+' registros</div></div>'+
+          '</div>'+
+          '<div style="margin-bottom:8px;">'+
+            '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">'+
+              '<span style="font-size:12px;color:var(--text2);">Hojas cortadas</span>'+
+              '<span style="font-size:14px;font-weight:700;font-family:monospace;color:var(--amber-t);">'+d.hojas.toFixed(2)+'</span>'+
+            '</div>'+
+            '<div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;">'+
+              '<div style="height:100%;width:'+pct.toFixed(1)+'%;background:var(--amber-t);border-radius:3px;transition:width .5s;"></div>'+
+            '</div>'+
+          '</div>'+
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;font-family:monospace;">'+
+            '<div style="background:var(--bg3);border-radius:6px;padding:6px 8px;text-align:center;">'+
+              '<div style="font-size:13px;font-weight:600;color:var(--text);">'+promHojas.toFixed(2)+'</div>'+
+              '<div style="color:var(--text3);">prom. por reg.</div>'+
+            '</div>'+
+            '<div style="background:'+(d.faltantes>0?'var(--red-bg)':'var(--bg3)')+';border-radius:6px;padding:6px 8px;text-align:center;">'+
+              '<div style="font-size:13px;font-weight:600;color:'+(d.faltantes>0?'var(--red-t)':'var(--text)')+';"> '+d.faltantes+'</div>'+
+              '<div style="color:var(--text3);">faltantes</div>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      }).join('');
+    }
+  }
+
+  // ── Tabla detalle ──
+  const tbody = document.getElementById('op-tabla');
+  if(tbody){
+    if(!regs.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:2rem;">Sin registros</td></tr>'; return; }
+    const ordenados = [...regs].sort((a,b)=>{
+      const fa=opParseFechaReg(a)||new Date(0), fb=opParseFechaReg(b)||new Date(0);
+      return fb-fa;
+    });
+    tbody.innerHTML = ordenados.map(r=>
+      '<tr>'+
+      '<td><div class="fc g1"><div class="uav" style="width:24px;height:24px;font-size:9px;">'+
+        (r.operario||'?').split(' ').map(p=>p[0]||'').join('').slice(0,2).toUpperCase()+
+      '</div>'+r.operario+'</div></td>'+
+      '<td style="font-family:monospace;font-size:11px;color:var(--text2);white-space:nowrap;">'+(r.fechaRegistro||'—')+'</td>'+
+      '<td><span class="badge b-op">'+r.op+'</span></td>'+
+      '<td style="font-size:12px;">'+r.color+' · '+r.grosor+'</td>'+
+      '<td style="font-family:monospace;color:var(--amber-t);font-weight:500;">'+(r.materiales?.[0]?.hojas||0).toFixed(2)+'</td>'+
+      '<td>'+(r.tipo==='recorte'?'<span class="badge b-rec">Faltante</span>':'<span class="badge b-ok">Normal</span>')+'</td>'+
+      '</tr>'
+    ).join('');
+  }
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -4316,7 +4732,8 @@ function showT(id,el){
   if(id==='t-almacen')rAlmacen();
   if(id==='t-stock')rStockTab();
   if(id==='t-residuos')rResiduos();
-  if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); }
+  if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); setTimeout(dibujarGrafAprov, 100); }
+  if(id==='t-operadores') setTimeout(()=>{ opSetRango('semana'); }, 50);
   if(id==='t-maq')rMaqTab();
   if(id==='t-usr')rUsrTab();
   if(id==='t-excel')rExBtns();
@@ -5348,7 +5765,7 @@ setTimeout(()=>{ const el=document.getElementById('aprov-btn-semana'); if(el) el
 
     <!-- Historial del día -->
     <div class="card">
-      <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Registros de hoy</p>
+      <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Últimos 10 registros</p>
       <div id="res-historial"><p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros hoy</p></div>
     </div>
   </div>
