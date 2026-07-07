@@ -5580,19 +5580,24 @@ function finalizarCarga(opMap,ops,mats,errs,fileName,formato){
     if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);
   });
 
-  // Guardar en Firebase en lotes de 50 para evitar throttling
+  // Guardar en Firebase de a una con pequeño delay para evitar throttling
   if(typeof fbGuardarOP==='function'){
-    const LOTE = 50;
-    const guardarLote = async (inicio) => {
-      const lote = todasOps.slice(inicio, inicio+LOTE);
-      await Promise.all(lote.map(o => fbGuardarOP(o).catch(e=>console.warn('Error guardando',o.op,e))));
-      if(inicio+LOTE < todasOps.length){
-        setTimeout(()=>guardarLote(inicio+LOTE), 300);
-      } else {
-        console.log('✓ Todas las OPs guardadas en Firebase:', todasOps.length);
+    const guardarSecuencial = async () => {
+      let errores = 0;
+      for(let i=0; i<todasOps.length; i++){
+        try{
+          await fbGuardarOP(todasOps[i]);
+        } catch(e){
+          errores++;
+          // Reintentar una vez
+          try{ await fbGuardarOP(todasOps[i]); } catch(e2){ console.warn('Error definitivo guardando',todasOps[i].op); }
+        }
+        // Pequeño delay cada 10 OPs para no saturar Firebase
+        if((i+1)%10===0) await new Promise(r=>setTimeout(r,100));
       }
+      console.log('✓ OPs guardadas en Firebase:', todasOps.length, '| Errores:', errores);
     };
-    guardarLote(0);
+    guardarSecuencial();
   }
   const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
   const an=DB.areas.find(a=>a.id===excelAreaId)?.nombre||excelAreaId;
