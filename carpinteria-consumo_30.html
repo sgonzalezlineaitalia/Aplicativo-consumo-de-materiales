@@ -58,6 +58,16 @@ window.fbGuardarOP = async function(op) {
   }
 };
 
+// Diagnóstico: buscar OP específica directo en Firebase
+window.fbBuscarOP = async function(opId) {
+  try {
+    const { getDoc } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const d = await getDoc(doc(db, "ops", opId));
+    if(d.exists()){ console.log('✓ OP encontrada en Firebase:', d.data()); alert('✓ '+opId+' SÍ está en Firebase\n'+JSON.stringify(d.data(),null,2).slice(0,300)); }
+    else { console.warn('✗ OP NO encontrada en Firebase:', opId); alert('✗ '+opId+' NO está en Firebase'); }
+  } catch(e){ console.error(e); alert('Error: '+e.message); }
+};
+
 // ─── Cargar OPs desde Firestore ───
 window.fbCargarOPs = async function() {
   try {
@@ -5564,11 +5574,26 @@ function procDynamicsJerarquico(wb,fileName,fechaProd){
 }
 
 function finalizarCarga(opMap,ops,mats,errs,fileName,formato){
-  Object.values(opMap).forEach(o=>{
+  const todasOps = Object.values(opMap);
+  todasOps.forEach(o=>{
     const idx=DB.ops.findIndex(x=>x.op===o.op);
     if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);
-    if(typeof fbGuardarOP==='function') fbGuardarOP(o);
   });
+
+  // Guardar en Firebase en lotes de 50 para evitar throttling
+  if(typeof fbGuardarOP==='function'){
+    const LOTE = 50;
+    const guardarLote = async (inicio) => {
+      const lote = todasOps.slice(inicio, inicio+LOTE);
+      await Promise.all(lote.map(o => fbGuardarOP(o).catch(e=>console.warn('Error guardando',o.op,e))));
+      if(inicio+LOTE < todasOps.length){
+        setTimeout(()=>guardarLote(inicio+LOTE), 300);
+      } else {
+        console.log('✓ Todas las OPs guardadas en Firebase:', todasOps.length);
+      }
+    };
+    guardarLote(0);
+  }
   const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
   const an=DB.areas.find(a=>a.id===excelAreaId)?.nombre||excelAreaId;
   // Resumen de fechas cargadas
