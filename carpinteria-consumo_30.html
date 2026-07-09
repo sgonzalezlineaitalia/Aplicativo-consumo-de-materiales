@@ -50,33 +50,51 @@ window.fbCargarRegistros = async function() {
 };
 
 // ─── Guardar OP en Firestore ───
-window.fbGuardarOP = async function(op) {
+// ─── OPs en chunks — 1 escritura por cada 200 OPs ───
+const OPS_CHUNK = 200;
+
+window.fbGuardarTodasOPs = async function(todasOps) {
   try {
-    await setDoc(doc(db, "ops", op.op), op);
-  } catch(e) {
-    console.error("Error guardando OP:", e);
-  }
+    const chunks = [];
+    for(let i=0; i<todasOps.length; i+=OPS_CHUNK){
+      chunks.push(todasOps.slice(i,i+OPS_CHUNK));
+    }
+    await Promise.all(chunks.map((chunk,i)=>
+      setDoc(doc(db, "ops_chunks", "chunk_"+i), {ops: chunk, idx: i, total: chunks.length})
+    ));
+    // Guardar índice con metadata
+    await setDoc(doc(db, "ops_chunks", "_meta"), {chunks: chunks.length, total: todasOps.length, updated: new Date().toISOString()});
+    console.log('✓ OPs guardadas en Firebase:', todasOps.length, 'en', chunks.length, 'chunks');
+  } catch(e) { console.error("Error guardando OPs:", e); }
 };
 
-// Diagnóstico: buscar OP específica directo en Firebase
-window.fbBuscarOP = async function(opId) {
-  try {
-    const { getDoc } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
-    const d = await getDoc(doc(db, "ops", opId));
-    if(d.exists()){ console.log('✓ OP encontrada en Firebase:', d.data()); alert('✓ '+opId+' SÍ está en Firebase\n'+JSON.stringify(d.data(),null,2).slice(0,300)); }
-    else { console.warn('✗ OP NO encontrada en Firebase:', opId); alert('✗ '+opId+' NO está en Firebase'); }
-  } catch(e){ console.error(e); alert('Error: '+e.message); }
-};
-
-// ─── Cargar OPs desde Firestore ───
 window.fbCargarOPs = async function() {
   try {
+    // Intentar cargar desde chunks primero (nuevo sistema)
+    const meta = await getDocs(collection(db, "ops_chunks"));
+    if(meta.docs.length > 0){
+      const metaDoc = meta.docs.find(d=>d.id==='_meta');
+      if(metaDoc){
+        const nChunks = metaDoc.data().chunks;
+        const chunks = meta.docs.filter(d=>d.id!=='_meta').sort((a,b)=>a.data().idx-b.data().idx);
+        return chunks.flatMap(d=>d.data().ops||[]);
+      }
+    }
+    // Fallback: sistema antiguo doc por doc
     const snap = await getDocs(collection(db, "ops"));
     return snap.docs.map(d => d.data());
   } catch(e) {
     console.error("Error cargando OPs:", e);
     return [];
   }
+};
+
+// Diagnóstico
+window.fbBuscarOP = async function(opId) {
+  const ops = await fbCargarOPs();
+  const found = ops.find(o=>o.op===opId);
+  if(found){ console.log('✓ OP encontrada:', found); alert('✓ '+opId+' SÍ está en Firebase'); }
+  else { console.warn('✗ NO encontrada'); alert('✗ '+opId+' NO está en Firebase\nTotal OPs en Firebase: '+ops.length); }
 };
 
 // ─── Eliminar registro de Firestore ───
@@ -90,7 +108,7 @@ window.fbEliminarRegistro = async function(fbId) {
 
 // ─── Eliminar OP de Firestore ───
 window.fbEliminarOP = async function(opId) {
-  try { await deleteDoc(doc(db, "ops", opId)); }
+  try { await deleteDoc(doc(db, "ops", opId)).catch(()=>{}); } // Legacy
   catch(e) { console.error("Error eliminando OP:", e); }
 };
 
@@ -210,7 +228,7 @@ window.fbInit = async function() {
   try {
     const [regs, ops, sobrantes, spiezas] = await Promise.all([
       fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes(), fbCargarStockPiezas()
-    ]);
+    ]); // fbCargarOPs ahora usa chunks
     if(regs.length > 0) DB.registros = regs;
     if(ops.length > 0) DB.ops = ops;
     if(sobrantes.length > 0) DB.sobrantes = sobrantes;
@@ -227,12 +245,11 @@ window.fbInit = async function() {
       DB.registros = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
       fbRefreshUI();
     });
-    onSnapshot(collection(db, "ops"), (snap) => {
+    onSnapshot(collection(db, "ops_chunks"), (snap) => {
       if(window.fbPaused) return;
-      if(snap.docs.length > 0) {
-        DB.ops = snap.docs.map(d => d.data());
-        if(typeof rAreas === 'function') rAreas();
-        if(typeof rUsers === 'function') rUsers();
+      const docs = snap.docs.filter(d=>d.id!=='_meta').sort((a,b)=>a.data().idx-b.data().idx);
+      if(docs.length > 0){
+        DB.ops = docs.flatMap(d=>d.data().ops||[]);
         fbRefreshUI();
       }
     });
@@ -769,7 +786,57 @@ tr:hover td{background:var(--bg3);}
         <div class="fb-bar"><i class="ti ti-circle-check"></i><div><div class="fb-op" id="pop"></div><div class="fb-det" id="pdet"></div></div></div>
         <button class="btn btn-amber btn-full" onclick="confirmarOP()">Continuar <i class="ti ti-arrow-right"></i></button>
       </div>
-      <div style="text-align:center;"><button class="btn btn-ghost btn-sm" onclick="tsinop()"><i class="ti ti-help-circle"></i> No encuentro mi OP</button></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="tsinop()"><i class="ti ti-help-circle"></i> No encuentro mi OP</button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirMolduras()" style="color:var(--green-t);border-color:var(--green);background:var(--green-bg);"><i class="ti ti-cut"></i> Molduras</button>
+      </div>
+      <div id="molduras-p" style="display:none;background:var(--green-bg);border:0.5px solid var(--green);border-radius:12px;padding:16px;margin-bottom:12px;">
+        <p style="font-size:14px;font-weight:600;color:var(--green-t);margin-bottom:4px;"><i class="ti ti-cut" style="font-size:14px;vertical-align:-2px;margin-right:5px;"></i>Corte de Molduras</p>
+        <p style="font-size:12px;color:var(--green-t);opacity:.8;margin-bottom:14px;">Registrá las hojas cortadas de moldura (5.5mm)</p>
+        <div style="margin-bottom:12px;">
+          <label class="lbl">Color</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <button id="mol-btn-olmo" onclick="selColorMoldura('Olmo Foresta','10602071',this)"
+              style="padding:12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;background:var(--bg);font-size:13px;font-weight:500;transition:all .15s;">
+              🪵 Olmo Foresta
+            </button>
+            <button id="mol-btn-braz" onclick="selColorMoldura('Brazzaville Wengue','10602073',this)"
+              style="padding:12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;background:var(--bg);font-size:13px;font-weight:500;transition:all .15s;">
+              🟤 Brazzaville
+            </button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div>
+            <label class="lbl">Hojas cortadas</label>
+            <div style="position:relative;">
+              <input type="number" id="mol-hojas" min="0.125" step="0.125" placeholder="0.5"
+                style="padding:10px 48px 10px 12px;font-size:18px;font-weight:600;font-family:monospace;border:0.5px solid var(--border);border-radius:8px;width:100%;">
+              <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text3);">hjs</span>
+            </div>
+            <!-- Atajos rápidos -->
+            <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;">
+              <button onclick="document.getElementById('mol-hojas').value=0.125" style="font-size:11px;padding:3px 7px;border:0.5px solid var(--border);border-radius:5px;cursor:pointer;background:var(--bg2);">⅛</button>
+              <button onclick="document.getElementById('mol-hojas').value=0.25"  style="font-size:11px;padding:3px 7px;border:0.5px solid var(--border);border-radius:5px;cursor:pointer;background:var(--bg2);">¼</button>
+              <button onclick="document.getElementById('mol-hojas').value=0.5"   style="font-size:11px;padding:3px 7px;border:0.5px solid var(--border);border-radius:5px;cursor:pointer;background:var(--bg2);">½</button>
+              <button onclick="document.getElementById('mol-hojas').value=1"     style="font-size:11px;padding:3px 7px;border:0.5px solid var(--border);border-radius:5px;cursor:pointer;background:var(--bg2);">1</button>
+              <button onclick="document.getElementById('mol-hojas').value=2"     style="font-size:11px;padding:3px 7px;border:0.5px solid var(--border);border-radius:5px;cursor:pointer;background:var(--bg2);">2</button>
+            </div>
+          </div>
+          <div>
+            <label class="lbl">Máquina</label>
+            <select id="mol-maq" style="padding:10px 12px;font-size:14px;border:0.5px solid var(--border);border-radius:8px;width:100%;height:46px;"></select>
+          </div>
+        </div>
+        <button class="btn btn-full" onclick="guardarMoldura()"
+          style="background:var(--green);color:#fff;border:none;font-size:14px;padding:12px;">
+          <i class="ti ti-device-floppy"></i> Guardar corte de moldura
+        </button>
+        <button onclick="cerrarMolduras()" style="width:100%;margin-top:8px;font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;padding:6px;">
+          Cancelar
+        </button>
+      </div>
+
       <div id="sinop-p" class="sinop-p" style="display:none;">
         <p style="font-size:14px;font-weight:600;color:var(--amber-t);margin-bottom:4px;"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:5px;"></i>No encontré mi OP</p>
         <p style="font-size:12px;color:var(--amber);margin-bottom:12px;">Ingresá los datos del mueble y buscaremos una OP coincidente.</p>
@@ -905,7 +972,7 @@ tr:hover td{background:var(--bg3);}
           </div>
           <div class="frow" style="flex-wrap:wrap;gap:8px;">
             <input type="text" id="fop" placeholder="Filtrar OP..." oninput="rReg()" style="max-width:160px;">
-            <select id="fest" onchange="rReg()"><option value="">Todos</option><option value="ok">Registrados</option><option value="pend">Pendientes</option><option value="rec">Faltantes</option></select>
+            <select id="fest" onchange="rReg()"><option value="">Todos</option><option value="ok">Registrados</option><option value="pend">Pendientes</option><option value="rec">Faltantes</option><option value="mol">Molduras</option></select>
             <select id="fmaq" onchange="rReg()"><option value="">Todas las máquinas</option></select>
             <select id="freg-fecha" onchange="rReg()" style="max-width:160px;"><option value="">Todas las fechas</option></select>
             <select id="freg-orden" onchange="rReg()" style="max-width:180px;">
@@ -4691,6 +4758,123 @@ function rOperadores(){
   }
 }
 
+// ═══════════ ROL Y PERMISOS ═══════════
+function aplicarRol(){
+  const esReadOnly = rolActual === 'readonly';
+  // Badge de rol
+  const badge = document.getElementById('rol-badge');
+  if(badge){
+    if(esReadOnly){
+      badge.textContent = '👁 Solo lectura';
+      badge.style.display = 'inline';
+      badge.style.background = 'var(--amber-bg)';
+      badge.style.color = 'var(--amber-t)';
+      badge.style.border = '0.5px solid var(--amber)';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+  // Ocultar botones destructivos en readonly
+  document.querySelectorAll('.btn-red').forEach(b=>{
+    b.style.display = esReadOnly ? 'none' : '';
+  });
+  const btnsOcultar = ['btn-vaciar-papelera','btn-limpiar-duplicados'];
+  btnsOcultar.forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = esReadOnly ? 'none' : '';
+  });
+}
+
+
+// ═══════════ MOLDURAS ═══════════
+let molColor = null, molSku = null;
+
+function abrirMolduras(){
+  // Cerrar panel sin OP si estaba abierto
+  const sp = document.getElementById('sinop-p');
+  if(sp) sp.style.display='none';
+  const mp = document.getElementById('molduras-p');
+  if(mp) mp.style.display='block';
+  // Poblar máquinas
+  const sel = document.getElementById('mol-maq');
+  if(sel && cArea){
+    const maqs = cArea.maquinas||[];
+    sel.innerHTML = '<option value="">Selecciona máquina...</option>' +
+      maqs.map(m=>'<option value="'+m+'">'+m+'</option>').join('');
+    if(cMaq) sel.value = cMaq;
+  }
+  molColor = null; molSku = null;
+}
+
+function cerrarMolduras(){
+  const mp = document.getElementById('molduras-p');
+  if(mp) mp.style.display='none';
+}
+
+function selColorMoldura(color, sku, btn){
+  molColor = color; molSku = sku;
+  // Visual
+  ['mol-btn-olmo','mol-btn-braz'].forEach(id=>{
+    const b = document.getElementById(id);
+    if(b){ b.style.borderColor='var(--border)'; b.style.background='var(--bg)'; b.style.color=''; }
+  });
+  if(btn){ btn.style.borderColor='var(--green)'; btn.style.background='var(--green-bg)'; btn.style.color='var(--green-t)'; }
+}
+
+function guardarMoldura(){
+  const hojas = parseFloat(document.getElementById('mol-hojas')?.value);
+  const maq   = document.getElementById('mol-maq')?.value;
+
+  if(!molColor){ alert('Seleccioná el color'); return; }
+  if(!hojas||hojas<=0){ alert('Ingresá las hojas cortadas'); return; }
+  if(!maq){ alert('Seleccioná la máquina'); return; }
+
+  const fechaRegistro = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})+
+    ' '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
+  const fecha = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  const reg = {
+    area:      cArea?.id||'carpinteria',
+    op:        'MOLDURA-'+Date.now(),
+    sku:       'MOLDURA',
+    modelo:    'Moldura',
+    color:     molColor,
+    grosor:    '5.5mm',
+    operario:  cUser||'—',
+    maquina:   maq,
+    tipo:      'moldura',
+    sinAsignar:false,
+    obs:       '',
+    justifDif: '',
+    fechaRegistro,
+    fecha,
+    materiales:[{
+      nombre:      'MDF 5.5 MM MELAMINA '+molColor.toUpperCase(),
+      skuMat:      molSku,
+      hojas,
+      planificado: 0,
+      sobrante:    0,
+      reutilizado: 0,
+    }]
+  };
+
+  DB.registros.push(reg);
+  if(typeof fbGuardarRegistro==='function') fbGuardarRegistro(reg).catch(console.error);
+
+  // Feedback
+  cerrarMolduras();
+  document.getElementById('mol-hojas').value = '';
+  molColor = null; molSku = null;
+  ['mol-btn-olmo','mol-btn-braz'].forEach(id=>{
+    const b=document.getElementById(id);
+    if(b){b.style.borderColor='var(--border)';b.style.background='var(--bg)';b.style.color='';}
+  });
+
+  // Mostrar confirmación
+  alert('✓ Moldura guardada: '+hojas+' hojas de '+molColor);
+  updMetrics();
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -4833,11 +5017,12 @@ function rReg(){
     if(fop&&!r.op.toLowerCase().includes(fop))return;
     if(fest==='pend')return;
     if(fest==='rec'&&r.tipo!=='recorte'&&r.tipo!=='faltante')return;
+    if(fest==='mol'&&r.tipo!=='moldura')return;
     if(fmq&&r.maquina!==fmq)return;
     const an=DB.areas.find(a=>a.id===r.area)?.nombre||r.area;
     r.materiales.forEach((m,mi)=>{
       const ri=DB.registros.indexOf(r);
-      const tipH=r.tipo==='recorte'?'<span class="badge b-rec">Faltante</span>':'<span class="badge b-ok">Normal</span>';
+      const tipH=r.tipo==='moldura'?'<span class="badge" style="background:var(--green-bg);color:var(--green-t);border-color:var(--green);">Moldura</span>':r.tipo==='recorte'?'<span class="badge b-rec">Faltante</span>':'<span class="badge b-ok">Normal</span>';
       const del=mi===0?'<button class="btn btn-red btn-sm" onclick="abrirMR('+ri+')" style="opacity:.5;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5"><i class="ti ti-trash"></i></button>':'';
       // Plan. y Diferencia
       const plan = m.planificado>0 ? m.planificado : 0;
@@ -5580,24 +5765,12 @@ function finalizarCarga(opMap,ops,mats,errs,fileName,formato){
     if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);
   });
 
-  // Guardar en Firebase de a una con pequeño delay para evitar throttling
-  if(typeof fbGuardarOP==='function'){
-    const guardarSecuencial = async () => {
-      let errores = 0;
-      for(let i=0; i<todasOps.length; i++){
-        try{
-          await fbGuardarOP(todasOps[i]);
-        } catch(e){
-          errores++;
-          // Reintentar una vez
-          try{ await fbGuardarOP(todasOps[i]); } catch(e2){ console.warn('Error definitivo guardando',todasOps[i].op); }
-        }
-        // Pequeño delay cada 10 OPs para no saturar Firebase
-        if((i+1)%10===0) await new Promise(r=>setTimeout(r,100));
-      }
-      console.log('✓ OPs guardadas en Firebase:', todasOps.length, '| Errores:', errores);
-    };
-    guardarSecuencial();
+  // Guardar todas las OPs en chunks — pocas escrituras
+  if(typeof fbGuardarTodasOPs==='function'){
+    fbGuardarTodasOPs(todasOps).then(()=>{
+      // Actualizar UI con las nuevas OPs
+      fbRefreshUI && fbRefreshUI();
+    });
   }
   const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
   const an=DB.areas.find(a=>a.id===excelAreaId)?.nombre||excelAreaId;
