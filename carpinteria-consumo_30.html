@@ -5784,10 +5784,9 @@ function finalizarCarga(opMap,ops,mats,errs,fileName,formato){
     if(idx>=0)DB.ops[idx]=o;else DB.ops.push(o);
   });
 
-  // Guardar todas las OPs en chunks — pocas escrituras
+  // Guardar TODAS las OPs acumuladas en chunks — no solo las nuevas
   if(typeof fbGuardarTodasOPs==='function'){
-    fbGuardarTodasOPs(todasOps).then(()=>{
-      // Actualizar UI con las nuevas OPs
+    fbGuardarTodasOPs(DB.ops).then(()=>{
       fbRefreshUI && fbRefreshUI();
     });
   }
