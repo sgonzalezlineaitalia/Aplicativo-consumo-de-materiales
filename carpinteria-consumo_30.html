@@ -1213,11 +1213,12 @@ tr:hover td{background:var(--bg3);}
                 </select>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">
-                <button class="btn btn-ghost btn-sm" onclick="opSetRango('hoy')">Hoy</button>
-                <button class="btn btn-ghost btn-sm" onclick="opSetRango('ayer')">Ayer</button>
-                <button class="btn btn-ghost btn-sm" onclick="opSetRango('semana')">Esta semana</button>
-                <button class="btn btn-ghost btn-sm" onclick="opSetRango('semana-ant')">Semana ant.</button>
-                <button class="btn btn-ghost btn-sm" onclick="opSetRango('mes')">Este mes</button>
+                <button class="btn btn-ghost btn-sm active" id="op-btn-24h" onclick="opSetRango('24h',this)">Últimas 24h</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('hoy',this)">Hoy</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('ayer',this)">Ayer</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('semana',this)">Esta semana</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('semana-ant',this)">Semana ant.</button>
+                <button class="btn btn-ghost btn-sm" onclick="opSetRango('mes',this)">Este mes</button>
               </div>
             </div>
           </div>
@@ -4591,10 +4592,28 @@ function kpiCard(titulo, valor, color, bg, border, icon){
 
 // ═══════════ EFECTIVIDAD OPERADORES ═══════════
 
-function opSetRango(rango){
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
-  let desde, hasta;
-  if(rango==='hoy'){
+function opSetRango(rango, btn){
+  // Marcar botón activo
+  document.querySelectorAll('#t-operadores .btn-ghost').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+
+  const ahora = new Date();
+  const hoy = new Date(ahora); hoy.setHours(0,0,0,0);
+  let desde, hasta, desdeH='00:00', hastaH='23:59';
+
+  if(rango==='24h'){
+    // Últimas 24 horas exactas
+    desde  = new Date(ahora.getTime() - 24*60*60*1000);
+    hasta  = new Date(ahora);
+    desdeH = String(desde.getHours()).padStart(2,'0')+':'+String(desde.getMinutes()).padStart(2,'0');
+    hastaH = String(hasta.getHours()).padStart(2,'0')+':'+String(hasta.getMinutes()).padStart(2,'0');
+    document.getElementById('op-desde-f').value = desde.toISOString().slice(0,10);
+    document.getElementById('op-hasta-f').value  = hasta.toISOString().slice(0,10);
+    document.getElementById('op-desde-h').value  = desdeH;
+    document.getElementById('op-hasta-h').value  = hastaH;
+    rOperadores();
+    return;
+  } else if(rango==='hoy'){
     desde = new Date(hoy); hasta = new Date(hoy);
   } else if(rango==='ayer'){
     desde = new Date(hoy); desde.setDate(hoy.getDate()-1);
@@ -4927,7 +4946,7 @@ function showT(id,el){
   if(id==='t-stock')rStockTab();
   if(id==='t-residuos')rResiduos();
   if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); setTimeout(dibujarGrafAprov, 100); }
-  if(id==='t-operadores') setTimeout(()=>{ opSetRango('semana'); }, 50);
+  if(id==='t-operadores') setTimeout(()=>{ opSetRango('24h', document.getElementById('op-btn-24h')); }, 50);
   if(id==='t-maq')rMaqTab();
   if(id==='t-usr')rUsrTab();
   if(id==='t-excel')rExBtns();
