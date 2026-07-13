@@ -274,6 +274,11 @@ window.fbInit = async function() {
       if(typeof rResidualHoy==='function') rResidualHoy();
       if(typeof rResiduos==='function' && document.getElementById('t-residuos')?.style.display!=='none') rResiduos();
     });
+    onSnapshot(collection(db, "almacen_entregas"), (snap) => {
+      if(window.fbPaused) return;
+      DB.almacenEntregas = snap.docs.map(d=>d.data());
+      if(typeof almRefresh==='function') almRefresh();
+    });
     onSnapshot(collection(db, "papelera"), (snap) => {
       if(window.fbPaused) return;
       papelera = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
@@ -399,6 +404,13 @@ window.fbLogActividad = async function(accion, detalle) {
     };
     await setDoc(doc(db, "log_admin", reg.id), reg);
   } catch(e) { console.warn("Error guardando log:", e); }
+};
+
+
+// ─── Almacén entregas ───
+window.fbGuardarEntrega = async function(reg) {
+  try { await setDoc(doc(db, "almacen_entregas", reg.id), reg); }
+  catch(e) { console.error("Error guardando entrega:", e); }
 };
 
 // Esperar a que el DOM esté listo
@@ -990,6 +1002,7 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-operadores',this)"><i class="ti ti-users"></i> Registros operadores</div>
         <div class="ni" id="ni-admins" onclick="showT('t-admins',this)" style="display:none;"><i class="ti ti-shield-lock"></i> Usuarios admin</div>
         <div class="ni" onclick="showT('t-aprovechamiento',this)"><i class="ti ti-chart-pie"></i> Aprovechamiento</div>
+        <div class="ni" onclick="showT('t-almacen-sup',this)"><i class="ti ti-package"></i> Control de Almacén <span id="alm-badge" style="display:none;background:var(--red);color:#fff;font-size:10px;border-radius:10px;padding:1px 6px;margin-left:4px;"></span></div>
         <div class="ni" onclick="showT('t-residuos',this)"><i class="ti ti-trash"></i> Residuos</div>
         <div class="ni" onclick="showT('t-stock',this)"><i class="ti ti-puzzle"></i> Piezas stock</div>
         <div class="ni" onclick="showT('t-almacen',this)"><i class="ti ti-stack-2"></i> Almacén<span id="almacen-badge" style="display:none;margin-left:auto;background:var(--wood-bg);color:var(--wood-t);border:0.5px solid var(--wood);font-size:10px;font-family:'DM Mono',monospace;padding:1px 6px;border-radius:4px;"></span></div>
@@ -1352,6 +1365,40 @@ tr:hover td{background:var(--bg3);}
             </table></div>
           </div>
         </div>
+
+        <div class="stab" id="t-almacen-sup">
+          <p class="ptitle">Control de Almacén</p>
+          <p class="psub">Necesidades semanales y entregas registradas</p>
+
+          <!-- Alertas -->
+          <div id="alm-sup-alertas" style="margin-bottom:1rem;"></div>
+
+          <!-- Tabla de necesidades -->
+          <div class="card" style="margin-bottom:1rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+              <p style="font-size:13px;font-weight:600;"><i class="ti ti-list-check" style="font-size:13px;vertical-align:-1px;margin-right:4px;"></i>Hojas requeridas por SKU</p>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <button class="btn btn-ghost btn-sm" onclick="almSupSemana(-1)"><i class="ti ti-chevron-left"></i></button>
+                <span id="alm-sup-semana-label" style="font-size:12px;font-family:monospace;color:var(--text2);min-width:140px;text-align:center;">—</span>
+                <button class="btn btn-ghost btn-sm" onclick="almSupSemana(0)">Hoy</button>
+                <button class="btn btn-ghost btn-sm" onclick="almSupSemana(1)"><i class="ti ti-chevron-right"></i></button>
+              </div>
+            </div>
+            <div class="dtw"><table>
+              <thead><tr><th>SKU</th><th>Material</th><th>Requerido</th><th>Entregado</th><th>Pendiente</th><th>Estado</th></tr></thead>
+              <tbody id="alm-sup-necesidades"></tbody>
+            </table></div>
+          </div>
+
+          <!-- Entregas registradas -->
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"><p style="font-size:13px;font-weight:600;">Entregas registradas</p><button class="btn btn-ghost btn-sm" onclick="almExportarExcel()"><i class="ti ti-file-spreadsheet"></i> Exportar Excel</button></div>
+            <div class="dtw"><table>
+              <thead><tr><th>Fecha/Hora</th><th>Material</th><th>SKU</th><th>Hojas</th><th></th></tr></thead>
+              <tbody id="alm-sup-tabla"></tbody>
+            </table></div>
+          </div>
+        </div>
         <div class="stab" id="t-residuos">
           <p class="ptitle">Control de Residuos</p>
           <p class="psub">Basura y esqueleto de corte por máquina</p>
@@ -1513,7 +1560,8 @@ tr:hover td{background:var(--bg3);}
 // ═══════════ CONSTANTES ═══════════
 const PIN = '4689'; // Supervisor completo
 const PIN_READONLY = ['4523','7542']; // Solo lectura
-let rolActual = 'supervisor'; // 'supervisor' | 'readonly'
+const PIN_ALMACEN = '1234'; // Almacenista
+let rolActual = 'supervisor'; // 'supervisor' | 'readonly' | 'almacen'
 let _pinActual = ''; // PIN usado para entrar
 const MLW = 520, MLH = 180, MLA = MLW * MLH;
 const MLC = [
@@ -1534,6 +1582,7 @@ const DB = {
     {id:'laser',nombre:'Corte Láser',icon:'ti-vector-bezier-2',desc:'Grabado y corte',maquinas:['Blue Elephant']},
   ],
   usuarios: [], // Los operarios viven en Firebase, no hardcodeados
+  almacenEntregas: [],
   admins: [
     {nombre:'Sebastián González', pin:'4689', rol:'supervisor'},
     {nombre:'Usuario lectura 1',    pin:'4523', rol:'readonly'},
@@ -1565,9 +1614,12 @@ function show(id){
   const calc=document.getElementById('calc-panel');
   if(calc) calc.classList.remove('open','collapsed');
   if(id==='screen-residuos') setTimeout(initResiduo,50);
+  if(id==='screen-almacen'){ document.getElementById('alm-pin').value=''; document.getElementById('alm-bloqueado').style.display='block'; document.getElementById('alm-contenido').style.display='none'; }
   // Botón residuos solo visible en login
   const btnRes = document.getElementById('btn-residuos-fixed');
   if(btnRes) btnRes.style.display = id==='screen-login' ? 'flex' : 'none';
+  const btnAlm = document.getElementById('btn-almacen-fixed');
+  if(btnAlm) btnAlm.style.display = id==='screen-login' ? 'flex' : 'none';
 }
 function logout(){ cUser=null; cArea=null; cMaq=null; rAreas(); show('screen-login'); }
 function cambiarMaq(){ rMaqs(); show('screen-maquina'); }
@@ -5179,6 +5231,470 @@ function cargarLog(){
   });
 }
 
+
+// ═══════════ ALMACÉN ═══════════
+let almSemanaOffset = 0;
+let almSkuSeleccionado = null;
+if(!DB.almacenEntregas) DB.almacenEntregas = [];
+
+function validarAlmacen(){
+  const pin = document.getElementById('alm-pin')?.value;
+  if(pin === PIN_ALMACEN){
+    document.getElementById('alm-bloqueado').style.display = 'none';
+    document.getElementById('alm-contenido').style.display = 'block';
+    almSemana(0);
+  } else {
+    document.getElementById('alm-pin').style.borderColor = 'var(--red)';
+    setTimeout(()=>document.getElementById('alm-pin').style.borderColor='', 1500);
+  }
+}
+
+function almGetSemana(offset){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const dow = hoy.getDay();
+  const lun = new Date(hoy); lun.setDate(hoy.getDate() - (dow===0?6:dow-1) + offset*7);
+  const dom = new Date(lun); dom.setDate(lun.getDate()+6);
+  return {lun, dom};
+}
+
+function almFechaCorte(fechaPT){
+  // Restar 3 días hábiles a la fecha PT para obtener la fecha de corte
+  return restarDiasHabiles(fechaPT, 3);
+}
+
+function almSemana(delta){
+  if(delta !== null) almSemanaOffset += delta;
+  const {lun, dom} = almGetSemana(almSemanaOffset);
+  const fmt = d => d.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit'});
+  document.getElementById('alm-semana-label').textContent =
+    'Corte: '+fmt(lun)+' al '+fmt(dom)+' · PT: aprox '+
+    fmt(new Date(lun.getTime()+3*86400000*1.4))+' – '+fmt(new Date(dom.getTime()+3*86400000*1.4));
+  almCargarTabla();
+  almRefresh();
+}
+
+function almCargarTabla(){
+  const {lun, dom} = almGetSemana(almSemanaOffset);
+  // Filtrar OPs cuya fecha de CORTE cae en esta semana
+  const opsSemana = DB.ops.filter(o=>{
+    if(!o.fecha) return false;
+    const m = o.fecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m) return false;
+    const fechaPT = new Date(+m[3],+m[2]-1,+m[1]);
+    const fechaCorte = almFechaCorte(fechaPT);
+    fechaCorte.setHours(0,0,0,0);
+    return fechaCorte >= lun && fechaCorte <= dom;
+  });
+
+  // Sumar hojas por SKU
+  const porSku = {};
+  opsSemana.forEach(op=>{
+    (op.materiales||[]).forEach(mat=>{
+      if(!mat.skuMat || !mat.planificado) return;
+      if(!porSku[mat.skuMat]) porSku[mat.skuMat] = {nombre:mat.nombre, total:0};
+      porSku[mat.skuMat].total += mat.planificado;
+    });
+  });
+
+  // Calcular entregado por SKU en esta semana
+  const {lun:lunD, dom:domD} = almGetSemana(almSemanaOffset);
+  const entregado = {};
+  DB.almacenEntregas.filter(e=>{
+    const m = (e.fecha||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m) return false;
+    const d = new Date(+m[3],+m[2]-1,+m[1]); d.setHours(0,0,0,0);
+    return d>=lunD && d<=domD;
+  }).forEach(e=>{ entregado[e.sku] = (entregado[e.sku]||0) + (e.hojas||0); });
+
+  const tbody = document.getElementById('alm-tabla-necesidades');
+  if(!tbody) return;
+
+  const skus = Object.keys(porSku).sort();
+  if(!skus.length){
+    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:2rem;">No hay OPs de corte para esta semana</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = skus.map(sku=>{
+    const d = porSku[sku];
+    const req = d.total;
+    const ent = entregado[sku]||0;
+    const pend = req - ent;
+    const pct  = req>0 ? Math.min(100,ent/req*100) : 0;
+    const over = ent > req*1.05; // más de 5% sobre el requerido
+    const ok   = ent >= req*0.98;
+    const color= over?'var(--red-t)':ok?'var(--green-t)':'var(--amber-t)';
+    const bgCol= over?'var(--red-bg)':ok?'var(--green-bg)':'var(--amber-bg)';
+    const estado= over?'⚠ Excedido':ok?'✓ Completo':'En proceso';
+    return '<tr style="'+(over?'background:var(--red-bg);':'')+'">'+'<td style="font-family:monospace;font-size:12px;">'+sku+'</td>'+
+      '<td style="font-size:12px;">'+d.nombre+'</td>'+
+      '<td style="font-family:monospace;font-weight:600;">'+req.toFixed(2)+'</td>'+
+      '<td style="font-family:monospace;color:var(--amber-t);font-weight:600;">'+ent.toFixed(2)+'</td>'+
+      '<td style="font-family:monospace;color:'+(pend>0?'var(--blue-t)':over?'var(--red-t)':'var(--green-t)')+';">'+
+        (pend>0?pend.toFixed(2):over?'+'+Math.abs(pend).toFixed(2):'0.00')+'</td>'+
+      '<td><div style="display:flex;align-items:center;gap:6px;">'+
+        '<div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;min-width:60px;">'+
+          '<div style="height:100%;width:'+pct.toFixed(0)+'%;background:'+color+';border-radius:3px;"></div>'+
+        '</div>'+
+        '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:'+bgCol+';color:'+color+';white-space:nowrap;">'+estado+'</span>'+
+      '</div></td>'+
+    '</tr>';
+  }).join('');
+}
+
+function almFiltrarSku(){
+  const inp  = document.getElementById('alm-sku-inp'); if(!inp) return;
+  const drop = document.getElementById('alm-sku-drop'); if(!drop) return;
+  const q    = inp.value.trim().toLowerCase();
+
+  // Buscar en catálogo + en OPs de la semana actual
+  const {lun, dom} = almGetSemana(almSemanaOffset);
+  const skusSemana = new Set();
+  DB.ops.filter(o=>{
+    if(!o.fecha) return false;
+    const m = o.fecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m) return false;
+    const fp = new Date(+m[3],+m[2]-1,+m[1]);
+    const fc = almFechaCorte(fp); fc.setHours(0,0,0,0);
+    return fc>=lun && fc<=dom;
+  }).forEach(o=>(o.materiales||[]).forEach(mat=>skusSemana.add(mat.skuMat)));
+
+  const resultados = CATALOGO_MELAMINAS.filter(m=>{
+    if(!q) return skusSemana.has(m.sku);
+    return m.sku.includes(q) || m.color.toLowerCase().includes(q) || m.nombre.toLowerCase().includes(q);
+  }).slice(0,12);
+
+  if(!resultados.length){ drop.style.display='none'; return; }
+  drop.style.display='block';
+  drop.innerHTML = resultados.map(m=>
+    '<div onclick="almSelSku(\''+m.sku+'\',\''+m.color+' '+m.grosor+'\')"'+
+    ' style="padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:0.5px solid var(--border);"'+
+    ' onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+
+      '<span style="font-family:monospace;font-size:11px;color:var(--text3);">'+m.sku+'</span> · '+m.color+' '+m.grosor+
+    '</div>'
+  ).join('');
+}
+
+function almSelSku(sku, nombre){
+  almSkuSeleccionado = sku;
+  const inp  = document.getElementById('alm-sku-inp');
+  const drop = document.getElementById('alm-sku-drop');
+  const sel  = document.getElementById('alm-sku-sel');
+  if(inp)  inp.value = nombre;
+  if(drop) drop.style.display='none';
+  if(sel){ sel.textContent='✓ SKU: '+sku; sel.style.display='block'; }
+}
+
+document.addEventListener('click', e=>{
+  const d = document.getElementById('alm-sku-drop');
+  const i = document.getElementById('alm-sku-inp');
+  if(d&&i&&!i.contains(e.target)&&!d.contains(e.target)) d.style.display='none';
+});
+
+function almRegistrar(){
+  const hojas = parseFloat(document.getElementById('alm-hojas')?.value);
+  const err   = document.getElementById('alm-err');
+
+  if(!almSkuSeleccionado){ if(err){err.textContent='Seleccioná un material de la lista';err.style.display='block';} return; }
+  if(!hojas||hojas<=0){ if(err){err.textContent='Ingresá las hojas entregadas';err.style.display='block';} return; }
+  // Siempre redondear al entero superior — no se entregan medias hojas
+  const hojasRedondeadas = Math.ceil(hojas);
+  if(hojasRedondeadas !== hojas && err){
+    err.textContent='Se redondeó a '+hojasRedondeadas+' hoja'+(hojasRedondeadas!==1?'s':'')+' (no se entregan fracciones)';
+    err.style.color='var(--amber-t)'; err.style.display='block';
+    setTimeout(()=>err.style.display='none',3000);
+  } else { if(err) err.style.display='none'; }
+  const mat = CATALOGO_MELAMINAS.find(m=>m.sku===almSkuSeleccionado);
+  const fecha = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const hora  = new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
+
+  const reg = {
+    id:     'ALM-'+Date.now(),
+    sku:    almSkuSeleccionado,
+    nombre: mat ? mat.color+' '+mat.grosor : almSkuSeleccionado,
+    hojas:  hojasRedondeadas,
+    fecha,
+    hora,
+    fechaHora: fecha+' '+hora,
+    semanaOffset: almSemanaOffset,
+  };
+
+  DB.almacenEntregas.push(reg);
+  if(typeof fbGuardarEntrega==='function') fbGuardarEntrega(reg).catch(console.error);
+
+  // Verificar si excede
+  const {lun, dom} = almGetSemana(almSemanaOffset);
+  const opsSemana = DB.ops.filter(o=>{
+    if(!o.fecha) return false;
+    const m2 = o.fecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m2) return false;
+    const fp = new Date(+m2[3],+m2[2]-1,+m2[1]);
+    const fc = almFechaCorte(fp); fc.setHours(0,0,0,0);
+    return fc>=lun && fc<=dom;
+  });
+  const requerido = opsSemana.reduce((s,o)=>s+((o.materiales||[]).find(x=>x.skuMat===almSkuSeleccionado)?.planificado||0),0);
+  const totalEntregado = DB.almacenEntregas.filter(e=>{
+    const m3=(e.fecha||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m3)return false;
+    const d=new Date(+m3[3],+m3[2]-1,+m3[1]);d.setHours(0,0,0,0);
+    return d>=lun&&d<=dom&&e.sku===almSkuSeleccionado;
+  }).reduce((s,e)=>s+e.hojas,0);
+
+  if(requerido>0 && totalEntregado > requerido*1.05){
+    const exceso = (totalEntregado-requerido).toFixed(0);
+    // Alerta roja visual en la pantalla del almacenista
+    const contAlm = document.getElementById('alm-contenido');
+    const alertaEl = document.createElement('div');
+    alertaEl.id = 'alm-alerta-exceso';
+    alertaEl.style.cssText = 'background:var(--red-bg);border:1.5px solid var(--red);border-radius:12px;padding:14px 16px;margin-bottom:16px;animation:fadeIn .3s;';
+    alertaEl.innerHTML = '<div style="display:flex;align-items:center;gap:10px;">'+
+      '<i class="ti ti-alert-triangle" style="font-size:24px;color:var(--red-t);flex-shrink:0;"></i>'+
+      '<div><p style="font-size:14px;font-weight:700;color:var(--red-t);">⚠ Exceso de material</p>'+
+      '<p style="font-size:12px;color:var(--red-t);">'+reg.nombre+' — Se entregaron '+exceso+' hojas de más</p>'+
+      '<p style="font-size:11px;color:var(--red-t);opacity:.8;">Requerido: '+Math.ceil(requerido)+' hjs · Entregado: '+totalEntregado+' hjs · El supervisor fue notificado</p>'+
+      '</div><button onclick="this.parentElement.parentElement.remove()" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--red-t);font-size:18px;">✕</button>'+
+    '</div>';
+    // Insertar al inicio del contenido
+    const semanaDiv = contAlm?.querySelector('[id="alm-semana-label"]')?.closest('div');
+    contAlm?.insertBefore(alertaEl, contAlm.firstChild);
+    setTimeout(()=>alertaEl.remove(), 8000);
+    // Guardar notificación para el admin
+    if(typeof fbGuardarEntrega==='function'){
+      fbGuardarEntrega({
+        id:'ALERTA-'+Date.now(), tipo:'alerta', sku:almSkuSeleccionado,
+        nombre:reg.nombre, requerido, entregado:totalEntregado, exceso:parseFloat(exceso),
+        fecha, hora, leida:false
+      }).catch(console.error);
+    }
+  }
+
+  // Limpiar
+  document.getElementById('alm-hojas').value='';
+  document.getElementById('alm-sku-inp').value='';
+  document.getElementById('alm-sku-sel').style.display='none';
+  almSkuSeleccionado=null;
+  almCargarTabla();
+  almRefresh();
+}
+
+function almRefresh(){
+  const cont = document.getElementById('alm-historial'); if(!cont) return;
+  const parseFH = f=>{
+    const m=(f||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+    if(!m)return new Date(0);
+    return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0));
+  };
+  const ultimos = [...DB.almacenEntregas].filter(e=>e.tipo!=='alerta')
+    .sort((a,b)=>parseFH(b.fechaHora)-parseFH(a.fechaHora)).slice(0,10);
+  if(!ultimos.length){ cont.innerHTML='<p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros aún</p>'; return; }
+
+  // Calcular entregado acumulado por SKU para saber si hay exceso
+  const {lun, dom} = almGetSemana(almSemanaOffset);
+  const entXSku = {};
+  DB.almacenEntregas.filter(e=>e.tipo!=='alerta').forEach(e=>{
+    const m=(e.fecha||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m)return;
+    const d=new Date(+m[3],+m[2]-1,+m[1]);d.setHours(0,0,0,0);
+    if(d>=lun&&d<=dom) entXSku[e.sku]=(entXSku[e.sku]||0)+e.hojas;
+  });
+  const reqXSku = {};
+  DB.ops.filter(o=>{
+    if(!o.fecha)return false;
+    const m=o.fecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m)return false;
+    const fp=new Date(+m[3],+m[2]-1,+m[1]);
+    const fc=almFechaCorte(fp);fc.setHours(0,0,0,0);
+    return fc>=lun&&fc<=dom;
+  }).forEach(o=>(o.materiales||[]).forEach(mat=>{
+    if(mat.skuMat&&mat.planificado) reqXSku[mat.skuMat]=(reqXSku[mat.skuMat]||0)+mat.planificado;
+  }));
+
+  cont.innerHTML = ultimos.map(r=>{
+    const req=reqXSku[r.sku]||0;
+    const ent=entXSku[r.sku]||0;
+    const exceso = req>0 && ent>req*1.05;
+    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:0.5px solid var(--border);gap:8px;'+(exceso?'background:var(--red-bg);margin:0 -8px;padding:10px 8px;border-radius:8px;':'')+'">'+
+      '<div>'+
+        '<div style="font-size:13px;font-weight:600;color:'+(exceso?'var(--red-t)':'var(--amber-t)')+';">'+r.hojas+' hojas'+(exceso?' <span style="font-size:11px;background:var(--red);color:#fff;padding:1px 6px;border-radius:4px;margin-left:4px;">EXCESO</span>':'')+' </div>'+
+        '<div style="font-size:12px;color:var(--text2);">'+r.nombre+'</div>'+
+        '<div style="font-size:10px;font-family:monospace;color:var(--text3);">'+r.sku+'</div>'+
+        (exceso?'<div style="font-size:11px;color:var(--red-t);margin-top:2px;">Total entregado: '+ent+' hjs · Requerido: '+Math.ceil(req)+' hjs</div>':'')+
+      '</div>'+
+      '<div style="text-align:right;flex-shrink:0;">'+
+        '<div style="font-size:11px;font-family:monospace;color:var(--text2);">'+r.hora+'</div>'+
+        '<div style="font-size:10px;color:var(--text3);">'+r.fecha+'</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+
+
+
+let almSupSemanaOffset = 0;
+
+function almSupSemana(delta){
+  if(delta !== null) almSupSemanaOffset += delta;
+  const {lun, dom} = almGetSemana(almSupSemanaOffset);
+  const fmt = d => d.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit'});
+  const lbl = document.getElementById('alm-sup-semana-label');
+  if(lbl) lbl.textContent = fmt(lun)+' – '+fmt(dom);
+  rAlmacenSup();
+}
+
+function rAlmacenSup(){
+  // Tabla de necesidades
+  const {lun:lunN, dom:domN} = almGetSemana(almSupSemanaOffset);
+  const fmt2 = d => d.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit'});
+  const lblN = document.getElementById('alm-sup-semana-label');
+  if(lblN) lblN.textContent = fmt2(lunN)+' – '+fmt2(domN);
+
+  const opsSemN = DB.ops.filter(o=>{
+    if(!o.fecha) return false;
+    const m2 = o.fecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m2) return false;
+    const fp = new Date(+m2[3],+m2[2]-1,+m2[1]);
+    const fc = almFechaCorte(fp); fc.setHours(0,0,0,0);
+    return fc>=lunN && fc<=domN;
+  });
+  const porSkuN = {};
+  opsSemN.forEach(op=>(op.materiales||[]).forEach(mat=>{
+    if(!mat.skuMat||!mat.planificado) return;
+    if(!porSkuN[mat.skuMat]) porSkuN[mat.skuMat]={nombre:mat.nombre,total:0};
+    porSkuN[mat.skuMat].total += mat.planificado;
+  }));
+  const entregadoN = {};
+  DB.almacenEntregas.filter(e=>{
+    const m3=(e.fecha||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m3)return false;
+    const d=new Date(+m3[3],+m3[2]-1,+m3[1]);d.setHours(0,0,0,0);
+    return d>=lunN&&d<=domN&&e.tipo!=='alerta';
+  }).forEach(e=>{entregadoN[e.sku]=(entregadoN[e.sku]||0)+e.hojas;});
+  const tbodyN = document.getElementById('alm-sup-necesidades');
+  if(tbodyN){
+    const skusN = Object.keys(porSkuN).sort();
+    tbodyN.innerHTML = skusN.length ? skusN.map(sku=>{
+      const d=porSkuN[sku], req=d.total, ent=entregadoN[sku]||0, pend=req-ent;
+      const over=ent>req*1.05, ok=ent>=req*0.98;
+      const color=over?'var(--red-t)':ok?'var(--green-t)':'var(--amber-t)';
+      const bgCol=over?'var(--red-bg)':ok?'var(--green-bg)':'var(--amber-bg)';
+      const estado=over?'⚠ Excedido':ok?'✓ Completo':'En proceso';
+      const pct=req>0?Math.min(100,ent/req*100):0;
+      return '<tr style="'+(over?'background:var(--red-bg);':'')+'">'+'<td style="font-family:monospace;font-size:12px;">'+sku+'</td>'+
+        '<td style="font-size:12px;">'+d.nombre+'</td>'+
+        '<td style="font-family:monospace;font-weight:600;">'+Math.ceil(req)+'</td>'+
+        '<td style="font-family:monospace;color:var(--amber-t);font-weight:600;">'+ent.toFixed(2)+'</td>'+
+        '<td style="font-family:monospace;color:'+(pend>0?'var(--blue-t)':over?'var(--red-t)':'var(--green-t)')+';">'+
+          (pend>0?Math.ceil(pend):over?'+'+Math.ceil(Math.abs(pend)):'0')+'</td>'+
+        '<td><div style="display:flex;align-items:center;gap:6px;">'+
+          '<div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;min-width:60px;">'+
+            '<div style="height:100%;width:'+pct.toFixed(0)+'%;background:'+color+';border-radius:3px;"></div>'+
+          '</div>'+
+          '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:'+bgCol+';color:'+color+';white-space:nowrap;">'+estado+'</span>'+
+        '</div></td></tr>';
+    }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:2rem;">No hay OPs de corte para esta semana</td></tr>';
+  }
+
+  // Alertas de exceso
+  const alertas = DB.almacenEntregas.filter(e=>e.tipo==='alerta'&&!e.leida);
+  const divA = document.getElementById('alm-sup-alertas');
+  if(divA){
+    divA.innerHTML = alertas.map(a=>
+      '<div style="background:var(--red-bg);border:1px solid var(--red);border-radius:10px;padding:12px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">'+
+        '<div><strong style="color:var(--red-t);">⚠ Exceso de material</strong><br>'+
+          '<span style="font-size:12px;color:var(--red-t);">'+a.nombre+' ('+a.sku+') — Requerido: '+a.requerido.toFixed(2)+' · Entregado: '+a.entregado.toFixed(2)+' · Exceso: +'+a.exceso+' hojas</span>'+
+          '<br><span style="font-size:11px;color:var(--text3);">'+a.fecha+' '+a.hora+'</span>'+
+        '</div>'+
+        '<button class="btn btn-ghost btn-sm" onclick="almMarcarLeida(\''+a.id+'\')">Marcar leída</button>'+
+      '</div>'
+    ).join('') || '<p style="font-size:12px;color:var(--green-t);padding:8px;"><i class="ti ti-check"></i> Sin alertas activas</p>';
+  }
+  // Badge en menú
+  const badge = document.getElementById('alm-badge');
+  if(badge){ badge.textContent=alertas.length; badge.style.display=alertas.length?'inline':'none'; }
+  // Tabla de entregas
+  const tbody = document.getElementById('alm-sup-tabla');
+  if(!tbody) return;
+  const parseFH2 = f=>{const m=(f||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);if(!m)return new Date(0);return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0));};
+  const entregas = [...DB.almacenEntregas].filter(e=>e.tipo!=='alerta').sort((a,b)=>parseFH2(b.fechaHora)-parseFH2(a.fechaHora)).slice(0,50);
+  tbody.innerHTML = entregas.map(e=>
+    '<tr><td style="font-family:monospace;font-size:11px;">'+e.fechaHora+'</td>'+
+    '<td style="font-size:12px;">'+e.nombre+'</td>'+
+    '<td style="font-family:monospace;font-size:11px;color:var(--text3);">'+e.sku+'</td>'+
+    '<td style="font-family:monospace;color:var(--amber-t);font-weight:600;">'+e.hojas+'</td>'+
+    '<td><button class="btn btn-red btn-sm" onclick="almEliminarEntrega(\''+e.id+'\')" title="Eliminar"><i class="ti ti-trash"></i></button></td></tr>'
+  ).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:2rem;">Sin entregas registradas</td></tr>';
+}
+
+
+function almExportarExcel(){
+  const {lun, dom} = almGetSemana(almSupSemanaOffset);
+  const fmt = d => d.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  // Necesidades de la semana
+  const opsSem = DB.ops.filter(o=>{
+    if(!o.fecha) return false;
+    const m2 = o.fecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m2) return false;
+    const fp = new Date(+m2[3],+m2[2]-1,+m2[1]);
+    const fc = almFechaCorte(fp); fc.setHours(0,0,0,0);
+    return fc>=lun && fc<=dom;
+  });
+  const porSku = {};
+  opsSem.forEach(op=>(op.materiales||[]).forEach(mat=>{
+    if(!mat.skuMat||!mat.planificado) return;
+    if(!porSku[mat.skuMat]) porSku[mat.skuMat]={nombre:mat.nombre,total:0};
+    porSku[mat.skuMat].total += mat.planificado;
+  }));
+  const entregado = {};
+  DB.almacenEntregas.filter(e=>{
+    const m3=(e.fecha||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m3)return false;
+    const d=new Date(+m3[3],+m3[2]-1,+m3[1]);d.setHours(0,0,0,0);
+    return d>=lun&&d<=dom&&e.tipo!=='alerta';
+  }).forEach(e=>{entregado[e.sku]=(entregado[e.sku]||0)+e.hojas;});
+
+  // Solo tabla de necesidades con lo entregado
+  const rows = [
+    ['Control de Almacén'],
+    ['Semana de corte: '+fmt(lun)+' al '+fmt(dom)],
+    [],
+    ['SKU','Material','Requerido (hojas)','Entregado (hojas)','Pendiente','Estado'],
+    ...Object.keys(porSku).sort().map(sku=>{
+      const d=porSku[sku], req=Math.ceil(d.total), ent=entregado[sku]||0;
+      const pend=Math.max(0,req-ent);
+      const estado=ent>req*1.05?'Excedido':ent>=req*0.98?'Completo':'Pendiente';
+      return [sku, d.nombre, req, ent, pend, estado];
+    }),
+  ];
+
+  const csv = rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'Almacen_'+fmt(lun).replace(/\//g,'-')+'_al_'+fmt(dom).replace(/\//g,'-')+'.csv';
+  a.click();
+}
+
+function almMarcarLeida(id){
+  const e = DB.almacenEntregas.find(x=>x.id===id); if(!e) return;
+  e.leida=true;
+  if(typeof fbGuardarEntrega==='function') fbGuardarEntrega(e).catch(console.error);
+  rAlmacenSup();
+}
+
+function almEliminarEntrega(id){
+  const pin = prompt('Ingresá tu PIN para confirmar la eliminación:');
+  if(!pin) return;
+  const admins = DB.admins && DB.admins.length ? DB.admins : [{pin:PIN,rol:'supervisor'}];
+  const match = admins.find(a=>a.pin===pin && a.rol==='supervisor');
+  if(!match){ alert('PIN incorrecto o sin permisos'); return; }
+  DB.almacenEntregas = DB.almacenEntregas.filter(e=>e.id!==id);
+  import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js').then(({deleteDoc,doc})=>{
+    deleteDoc(doc(window.db,'almacen_entregas',id)).catch(console.error);
+  });
+  rAlmacenSup();
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -5230,6 +5746,7 @@ function showT(id,el){
   if(id==='t-almacen')rAlmacen();
   if(id==='t-stock'){rStockTab();rStockHistorial();}
   if(id==='t-residuos')rResiduos();
+  if(id==='t-almacen-sup'){ almSupSemanaOffset=0; almSupSemana(null); }
   if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); setTimeout(dibujarGrafAprov, 100); }
   if(id==='t-operadores') setTimeout(()=>{ opSetRango('24h', document.getElementById('op-btn-24h')); }, 50);
   if(id==='t-maq')rMaqTab();
@@ -6226,10 +6743,20 @@ setTimeout(()=>{ const el=document.getElementById('aprov-btn-semana'); if(el) el
          background:var(--bg2);border:1px solid var(--border2);
          border-radius:14px;padding:14px 20px;cursor:pointer;
          box-shadow:0 4px 16px rgba(0,0,0,.10);
-         font-size:15px;font-weight:500;color:var(--text2);
-         transition:box-shadow .2s,border-color .2s;">
+         font-size:15px;font-weight:500;color:var(--text2);">
   <i class="ti ti-trash" style="font-size:20px;color:var(--text3);"></i>
   Registro de residuos
+</button>
+
+<button id="btn-almacen-fixed" onclick="show('screen-almacen')"
+  style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100;
+         display:flex;align-items:center;gap:10px;
+         background:var(--bg2);border:1px solid var(--border2);
+         border-radius:14px;padding:14px 20px;cursor:pointer;
+         box-shadow:0 4px 16px rgba(0,0,0,.10);
+         font-size:15px;font-weight:500;color:var(--text2);">
+  <i class="ti ti-package" style="font-size:20px;color:var(--text3);"></i>
+  Control de Almacén
 </button>
 
 <!-- PANTALLA RESIDUOS -->
@@ -6278,6 +6805,66 @@ setTimeout(()=>{ const el=document.getElementById('aprov-btn-semana'); if(el) el
     <div class="card">
       <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Últimos 10 registros</p>
       <div id="res-historial"><p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros hoy</p></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- PANTALLA ALMACENISTA -->
+<div class="screen" id="screen-almacen">
+  <div style="max-width:680px;margin:0 auto;padding:2rem 1rem;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:2rem;">
+      <button onclick="show('screen-login')" style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:20px;"><i class="ti ti-arrow-left"></i></button>
+      <div>
+        <p style="font-size:20px;font-weight:700;">Control de Almacén</p>
+        <p style="font-size:12px;color:var(--text2);">Registro de material subido a corte</p>
+      </div>
+      <div style="margin-left:auto;">
+        <input type="password" id="alm-pin" maxlength="4" placeholder="PIN" style="width:80px;text-align:center;font-size:18px;font-family:monospace;padding:8px;border:1.5px solid var(--border);border-radius:8px;" onkeydown="if(event.key==='Enter')validarAlmacen()">
+        <button onclick="validarAlmacen()" class="btn btn-amber btn-sm" style="margin-left:6px;">Entrar</button>
+      </div>
+    </div>
+
+    <!-- Contenido (bloqueado hasta ingresar PIN) -->
+    <div id="alm-bloqueado" style="text-align:center;padding:3rem;color:var(--text3);">
+      <i class="ti ti-lock" style="font-size:48px;display:block;margin-bottom:12px;"></i>
+      <p>Ingresá el PIN para continuar</p>
+    </div>
+
+    <div id="alm-contenido" style="display:none;">
+
+      <!-- Semana activa — solo info -->
+      <div style="background:var(--blue-bg);border:0.5px solid var(--blue);border-radius:12px;padding:14px 16px;margin-bottom:1.5rem;">
+        <p style="font-size:13px;font-weight:600;color:var(--blue-t);">Semana de corte activa</p>
+        <p style="font-size:12px;color:var(--blue-t);opacity:.8;" id="alm-semana-label">—</p>
+      </div>
+
+      <!-- Registrar entrega -->
+      <div class="card" style="margin-bottom:1.5rem;">
+        <p style="font-size:13px;font-weight:600;margin-bottom:12px;"><i class="ti ti-plus" style="font-size:13px;vertical-align:-1px;margin-right:4px;"></i>Registrar material subido a corte</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
+          <div>
+            <label class="lbl">Material (SKU o nombre)</label>
+            <input type="text" id="alm-sku-inp" placeholder="Buscar material..." autocomplete="off"
+              oninput="almFiltrarSku()" onfocus="almFiltrarSku()" style="width:100%;">
+            <div id="alm-sku-drop" style="display:none;position:absolute;background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.1);min-width:280px;"></div>
+          </div>
+          <div>
+            <label class="lbl">Hojas entregadas</label>
+            <input type="number" id="alm-hojas" min="1" step="1" placeholder="1" style="font-size:16px;font-weight:600;font-family:monospace;">
+          </div>
+          <button class="btn btn-amber" onclick="almRegistrar()" style="align-self:end;"><i class="ti ti-device-floppy"></i> Registrar</button>
+        </div>
+        <p id="alm-sku-sel" style="font-size:11px;color:var(--green-t);margin-top:6px;display:none;"></p>
+        <p id="alm-err" style="font-size:11px;color:var(--red-t);margin-top:6px;display:none;"></p>
+      </div>
+
+      <!-- Últimos registros -->
+      <div class="card">
+        <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Últimos registros</p>
+        <div id="alm-historial"><p style="font-size:12px;color:var(--text3);text-align:center;padding:1rem;">Sin registros aún</p></div>
+      </div>
+
     </div>
   </div>
 </div>
