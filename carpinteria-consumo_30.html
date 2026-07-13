@@ -226,9 +226,10 @@ window.fbInit = async function() {
   const indicator = document.getElementById('fb-status');
   if(indicator) { indicator.textContent = '☁ Conectando...'; indicator.style.color = 'var(--amber-t)'; }
   try {
-    const [regs, ops, sobrantes, spiezas] = await Promise.all([
-      fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes(), fbCargarStockPiezas()
+    const [regs, ops, sobrantes, spiezas, adminsDB] = await Promise.all([
+      fbCargarRegistros(), fbCargarOPs(), fbCargarSobrantes(), fbCargarStockPiezas(), fbCargarAdmins()
     ]); // fbCargarOPs ahora usa chunks
+    if(adminsDB && adminsDB.length) DB.admins = adminsDB;
     if(regs.length > 0) DB.registros = regs;
     if(ops.length > 0) DB.ops = ops;
     if(sobrantes.length > 0) DB.sobrantes = sobrantes;
@@ -366,6 +367,38 @@ window.fbGuardarResiduo = async function(reg) {
 window.fbEliminarResiduo = async function(id) {
   try { await deleteDoc(doc(db, "residuos", id)); }
   catch(e) { console.error("Error eliminando residuo:", e); }
+};
+
+
+// ─── Usuarios Admin ───
+window.fbGuardarAdmins = async function(admins) {
+  try { await setDoc(doc(db, "config", "admins"), { admins }); }
+  catch(e) { console.error("Error guardando admins:", e); }
+};
+window.fbCargarAdmins = async function() {
+  try {
+    const d = await getDocs(collection(db, "config"));
+    const a = d.docs.find(x=>x.id==='admins');
+    return a ? a.data().admins : null;
+  } catch(e) { return null; }
+};
+
+
+// ─── Log de actividad admin ───
+window.fbLogActividad = async function(accion, detalle) {
+  try {
+    const admin = (DB.admins||[]).find(a=>a.pin===_pinActual)||{nombre:'Desconocido'};
+    const reg = {
+      id:       'LOG-'+Date.now(),
+      admin:    admin.nombre,
+      rol:      rolActual,
+      accion,
+      detalle:  detalle||'',
+      fecha:    new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})+
+                ' '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'})
+    };
+    await setDoc(doc(db, "log_admin", reg.id), reg);
+  } catch(e) { console.warn("Error guardando log:", e); }
 };
 
 // Esperar a que el DOM esté listo
@@ -955,6 +988,7 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-maq',this)"><i class="ti ti-tool"></i> Máquinas</div>
         <div class="ni" onclick="showT('t-usr',this)"><i class="ti ti-users"></i> Operarios</div>
         <div class="ni" onclick="showT('t-operadores',this)"><i class="ti ti-users"></i> Registros operadores</div>
+        <div class="ni" id="ni-admins" onclick="showT('t-admins',this)" style="display:none;"><i class="ti ti-shield-lock"></i> Usuarios admin</div>
         <div class="ni" onclick="showT('t-aprovechamiento',this)"><i class="ti ti-chart-pie"></i> Aprovechamiento</div>
         <div class="ni" onclick="showT('t-residuos',this)"><i class="ti ti-trash"></i> Residuos</div>
         <div class="ni" onclick="showT('t-stock',this)"><i class="ti ti-puzzle"></i> Piezas stock</div>
@@ -1182,6 +1216,39 @@ tr:hover td{background:var(--bg3);}
 
 
 
+
+        <div class="stab" id="t-admins">
+          <p class="ptitle">Usuarios Administradores</p>
+          <p class="psub">Accesos al panel de supervisor</p>
+
+          <div class="card" style="margin-bottom:1rem;">
+            <table style="width:100%;border-collapse:collapse;" id="t-admins-table">
+              <thead><tr style="border-bottom:1px solid var(--border);">
+                <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text3);font-weight:500;">Nombre</th>
+                <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text3);font-weight:500;">PIN</th>
+                <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text3);font-weight:500;">Rol</th>
+                <th style="padding:10px 12px;"></th>
+              </tr></thead>
+              <tbody id="t-admins-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Agregar nuevo usuario -->
+          <div class="card">
+            <p style="font-size:13px;font-weight:600;margin-bottom:12px;">Agregar usuario</p>
+            <div style="display:grid;grid-template-columns:1fr auto 1fr auto;gap:10px;align-items:end;">
+              <div><label class="lbl">Nombre</label><input type="text" id="adm-nombre" placeholder="Ej: María García"></div>
+              <div><label class="lbl">PIN (4 dígitos)</label><input type="number" id="adm-pin" maxlength="4" placeholder="0000" min="1000" max="9999" style="width:160px;text-align:center;font-size:28px;font-family:monospace;font-weight:600;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;"></div>
+              <div><label class="lbl">Rol</label>
+                <select id="adm-rol">
+                  <option value="readonly">Solo lectura</option>
+                  <option value="supervisor">Supervisor completo</option>
+                </select>
+              </div>
+              <button class="btn btn-amber" onclick="agregarAdmin()"><i class="ti ti-plus"></i> Agregar</button>
+            </div>
+          </div>
+        </div>
         <div class="stab" id="t-operadores">
           <p class="ptitle">Registros Operadores</p>
           <p class="psub">Hojas cortadas por operador en el período seleccionado</p>
@@ -1304,7 +1371,7 @@ tr:hover td{background:var(--bg3);}
         <div class="stab" id="t-stock">
           <p class="ptitle">Piezas de stock</p>
           <p class="psub">Botones rápidos para piezas de aprovechamiento</p>
-          <div class="card">
+          <div class="card" style="margin-bottom:1rem;">
             <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Estas piezas aparecen como botones rápidos en el canvas del operario, con su porcentaje predefinido.</p>
             <div id="stock-lista" style="margin-bottom:1rem;"></div>
             <div style="display:grid;grid-template-columns:1fr 80px auto;gap:8px;align-items:end;">
@@ -1312,6 +1379,22 @@ tr:hover td{background:var(--bg3);}
               <div><label class="lbl">% de hoja</label><input type="number" id="sp-pct" placeholder="10" min="1" max="99" style="text-align:center;"></div>
               <button class="btn btn-amber" onclick="addStockPieza()" style="align-self:end;"><i class="ti ti-plus"></i> Agregar</button>
             </div>
+          </div>
+
+          <!-- Registros de stock cortado -->
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+              <p style="font-size:13px;font-weight:600;">Historial de piezas cortadas</p>
+              <div style="display:flex;gap:8px;">
+                <select id="stk-f-fecha" onchange="rStockHistorial()" style="max-width:160px;"><option value="">Todas las fechas</option></select>
+                <select id="stk-f-pieza" onchange="rStockHistorial()" style="max-width:160px;"><option value="">Todas las piezas</option></select>
+              </div>
+            </div>
+            <div id="stk-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px;"></div>
+            <div class="dtw"><table>
+              <thead><tr><th>Fecha/Hora</th><th>Operario</th><th>Pieza</th><th>% hoja</th><th>Máquina</th><th>Material</th></tr></thead>
+              <tbody id="stk-tabla"></tbody>
+            </table></div>
           </div>
         </div>
         <div class="stab" id="t-almacen">
@@ -1431,6 +1514,7 @@ tr:hover td{background:var(--bg3);}
 const PIN = '4689'; // Supervisor completo
 const PIN_READONLY = ['4523','7542']; // Solo lectura
 let rolActual = 'supervisor'; // 'supervisor' | 'readonly'
+let _pinActual = ''; // PIN usado para entrar
 const MLW = 520, MLH = 180, MLA = MLW * MLH;
 const MLC = [
   {f:'rgba(37,99,235,.18)', s:'#1D4ED8',t:'#1D4ED8'},
@@ -1450,6 +1534,11 @@ const DB = {
     {id:'laser',nombre:'Corte Láser',icon:'ti-vector-bezier-2',desc:'Grabado y corte',maquinas:['Blue Elephant']},
   ],
   usuarios: [], // Los operarios viven en Firebase, no hardcodeados
+  admins: [
+    {nombre:'Sebastián González', pin:'4689', rol:'supervisor'},
+    {nombre:'Usuario lectura 1',    pin:'4523', rol:'readonly'},
+    {nombre:'Usuario lectura 2',    pin:'7542', rol:'readonly'},
+  ],
   ops: [],
   registros: [],
 };
@@ -1459,6 +1548,8 @@ let papelera = [], historial = [], excelAreaId = null;
 let cUser=null, cArea=null, cMaq=null, cOP=null, cTipo='normal';
 let cMatIdx=null, cCons={}, cLams={}, cLCnt=0;
 let selMode=false, selSet=new Set(), pendOps=[];
+// Usuarios admin — fuente de verdad Firebase, fallback hardcodeado
+if(!window.DB) window.DB = {};
 let compSort={col:null,dir:1}; let pendReg=null, supArea=null, osg='', osItem=null, cLastStep='s1', osfecha='';
 // Piezas de stock predefinidas
 if(!DB.stockPiezas) DB.stockPiezas = [
@@ -1528,17 +1619,20 @@ function np(el,nxt){ if(el.value.length===1) document.getElementById(nxt).focus(
 function cp(){
   const pin=['p1','p2','p3','p4'].map(id=>document.getElementById(id).value).join('');
   if(pin.length===4){
-    if(pin===PIN){
-      ['p1','p2','p3','p4'].forEach(id=>document.getElementById(id).value='');
+    // Buscar en DB.admins primero (dinámico), fallback a PINs hardcodeados
+    const admins = DB.admins && DB.admins.length ? DB.admins : [
+      {pin:PIN, rol:'supervisor'}, {pin:'4523',rol:'readonly'}, {pin:'7542',rol:'readonly'}
+    ];
+    const match = admins.find(a=>a.pin===pin);
+    ['p1','p2','p3','p4'].forEach(id=>document.getElementById(id).value='');
+    if(match){
       document.getElementById('perr').style.display='none';
-      rolActual='supervisor'; initSup(); show('screen-supervisor');
-    } else if(PIN_READONLY.includes(pin)){
-      ['p1','p2','p3','p4'].forEach(id=>document.getElementById(id).value='');
-      document.getElementById('perr').style.display='none';
-      rolActual='readonly'; initSup(); show('screen-supervisor');
+      rolActual = match.rol==='supervisor' ? 'supervisor' : 'readonly';
+      _pinActual = pin;
+      if(typeof fbLogActividad==='function') fbLogActividad('Ingresó al panel', 'Rol: '+rolActual);
+      initSup(); show('screen-supervisor');
     } else {
       document.getElementById('perr').style.display='block';
-      ['p1','p2','p3','p4'].forEach(id=>document.getElementById(id).value='');
       document.getElementById('p1').focus();
     }
   }
@@ -2473,6 +2567,8 @@ function _ejecutarGuardar(justif){
     const oMat=oOP.materiales.find(x=>x.skuMat===m.skuMat)||oOP.materiales[0];if(!oMat)return;
     const regAuto={area:cArea.id,op:oOP.op,modelo:oOP.modelo,color:oOP.color,grosor:oOP.grosor,sku:oOP.sku,
       operario:cUser,maquina:cMaq,tipo:'normal',motivo:'Auto: lámina compartida',sinAsignar:false,autoRegistrado:true,
+      fechaRegistro,
+      laminas: laminasGuardadas,
       materiales:[{nombre:oMat.nombre,skuMat:oMat.skuMat,hojas,sobrante:0,reutilizado:0,planificado:oMat.planificado}],fecha};
     DB.registros.push(regAuto);
     if(typeof fbGuardar === 'function') fbGuardar(regAuto);
@@ -3734,6 +3830,99 @@ function setStockCustom(lid){
 const _origTogComp = typeof togComp !== 'undefined' ? togComp : null;
 
 
+function rStockHistorial(){
+  const allR = supArea ? DB.registros.filter(r=>r.area===supArea.id) : DB.registros;
+
+  // Extraer todas las zonas de stock de los registros que tienen mapa
+  const eventos = [];
+  allR.forEach(r=>{
+    if(!r.laminas||!r.laminas.length) return;
+    r.laminas.forEach(lam=>{
+      (lam.zonas||[]).forEach(z=>{
+        if(z.tipo!=='stock') return;
+        eventos.push({
+          fechaRegistro: r.fechaRegistro||r.fecha||'—',
+          operario:  r.operario||'—',
+          maquina:   r.maquina||'—',
+          color:     r.color||'—',
+          grosor:    r.grosor||'—',
+          label:     z.label||'Stock',
+          pct:       Math.round((z.w*z.h)/(520*180)*100),
+          op:        r.op,
+        });
+      });
+    });
+  });
+
+  // Poblar filtros
+  const selF = document.getElementById('stk-f-fecha');
+  const selP = document.getElementById('stk-f-pieza');
+  if(selF){
+    const fechas = sortFechas([...new Set(eventos.map(e=>{
+      const m = (e.fechaRegistro||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      return m ? m[1].padStart(2,'0')+'/'+m[2].padStart(2,'0')+'/'+m[3] : '';
+    }).filter(Boolean))]);
+    const curF = selF.value;
+    selF.innerHTML = '<option value="">Todas las fechas</option>'+
+      fechas.map(f=>'<option value="'+f+'"'+(f===curF?' selected':'')+'>'+f+'</option>').join('');
+  }
+  if(selP){
+    const piezas = [...new Set(eventos.map(e=>e.label))].sort();
+    const curP = selP.value;
+    selP.innerHTML = '<option value="">Todas las piezas</option>'+
+      piezas.map(p=>'<option value="'+p+'"'+(p===curP?' selected':'')+'>'+p+'</option>').join('');
+  }
+
+  const ffecha = selF?.value||'';
+  const fpieza = selP?.value||'';
+
+  const filtrados = eventos.filter(e=>{
+    if(fpieza && e.label!==fpieza) return false;
+    if(ffecha){
+      const m = (e.fechaRegistro||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      const norm = m ? m[1].padStart(2,'0')+'/'+m[2].padStart(2,'0')+'/'+m[3] : '';
+      if(norm!==ffecha) return false;
+    }
+    return true;
+  }).sort((a,b)=>(b.fechaRegistro||'').localeCompare(a.fechaRegistro||''));
+
+  // KPIs
+  const kpiDiv = document.getElementById('stk-kpis');
+  if(kpiDiv){
+    const byPieza = {};
+    filtrados.forEach(e=>{ byPieza[e.label]=(byPieza[e.label]||0)+1; });
+    kpiDiv.innerHTML =
+      '<div style="background:var(--green-bg);border:0.5px solid var(--green);border-radius:8px;padding:10px 14px;text-align:center;">'+
+        '<div style="font-size:20px;font-weight:700;font-family:monospace;color:var(--green-t);">'+filtrados.length+'</div>'+
+        '<div style="font-size:11px;color:var(--green-t);opacity:.7;">piezas cortadas</div>'+
+      '</div>'+
+      Object.entries(byPieza).map(([nombre,cnt])=>
+        '<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;padding:10px 14px;text-align:center;">'+
+          '<div style="font-size:18px;font-weight:700;font-family:monospace;color:var(--text);">'+cnt+'</div>'+
+          '<div style="font-size:11px;color:var(--text2);">'+nombre+'</div>'+
+        '</div>'
+      ).join('');
+  }
+
+  // Tabla
+  const tbody = document.getElementById('stk-tabla');
+  if(!tbody) return;
+  if(!filtrados.length){
+    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:2rem;">Sin piezas de stock registradas</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtrados.map(e=>
+    '<tr>'+
+    '<td style="font-family:monospace;font-size:11px;color:var(--text2);white-space:nowrap;">'+e.fechaRegistro+'</td>'+
+    '<td>'+e.operario+'</td>'+
+    '<td><span style="background:var(--green-bg);color:var(--green-t);border:0.5px solid var(--green);padding:2px 8px;border-radius:5px;font-size:12px;font-weight:500;">'+e.label+'</span></td>'+
+    '<td style="font-family:monospace;font-weight:600;color:var(--green-t);">'+e.pct+'%</td>'+
+    '<td><span class="badge b-maq">'+e.maquina+'</span></td>'+
+    '<td style="font-size:12px;color:var(--text2);">'+e.color+' · '+e.grosor+'</td>'+
+    '</tr>'
+  ).join('');
+}
+
 function rStockTab(){
   const cont = document.getElementById('stock-lista'); if(!cont) return;
   if(!(DB.stockPiezas||[]).length){
@@ -4793,6 +4982,10 @@ function aplicarRol(){
       badge.style.display = 'none';
     }
   }
+  // Tab admins solo visible para supervisor completo
+  const niAdmins = document.getElementById('ni-admins');
+  if(niAdmins) niAdmins.style.display = esReadOnly ? 'none' : 'flex';
+
   // Ocultar botones destructivos en readonly
   document.querySelectorAll('.btn-red').forEach(b=>{
     b.style.display = esReadOnly ? 'none' : '';
@@ -4894,6 +5087,98 @@ function guardarMoldura(){
   updMetrics();
 }
 
+
+function rAdmins(){
+  const tbody = document.getElementById('t-admins-body'); if(!tbody) return;
+  const admins = DB.admins||[];
+  if(!admins.length){ tbody.innerHTML='<tr><td colspan="4" style="padding:2rem;text-align:center;color:var(--text3);">Sin usuarios configurados</td></tr>'; return; }
+  tbody.innerHTML = admins.map((a,i)=>{
+    const esSup = a.rol==='supervisor';
+    const rolLabel = esSup ? 'Supervisor completo' : 'Solo lectura';
+    const rolColor = esSup ? 'var(--amber-t)' : 'var(--text2)';
+    const rolBg    = esSup ? 'var(--amber-bg)' : 'var(--bg3)';
+    const rolBorder= esSup ? 'var(--amber)' : 'var(--border)';
+    return '<tr style="border-bottom:0.5px solid var(--border);">'+
+      '<td style="padding:12px;font-size:14px;font-weight:500;">'+a.nombre+'</td>'+
+      '<td style="padding:12px;font-family:monospace;font-size:16px;letter-spacing:6px;color:var(--amber-t);">'+a.pin+'</td>'+
+      '<td style="padding:12px;"><span style="font-size:12px;padding:3px 10px;border-radius:6px;background:'+rolBg+';color:'+rolColor+';border:0.5px solid '+rolBorder+';">'+rolLabel+'</span></td>'+
+      '<td style="padding:12px;">'+
+        (admins.length>1&&i>0?'<button class="btn btn-red btn-sm" onclick="eliminarAdmin('+i+')" title="Eliminar"><i class="ti ti-trash"></i></button>':'<span style="font-size:11px;color:var(--text3);">Principal</span>')+
+      '</td>'+
+    '</tr>';
+  }).join('');
+}
+
+function agregarAdmin(){
+  const nombre = document.getElementById('adm-nombre')?.value.trim();
+  const pin    = document.getElementById('adm-pin')?.value.trim();
+  const rol    = document.getElementById('adm-rol')?.value;
+  if(!nombre){ alert('Ingresá el nombre'); return; }
+  if(!pin||pin.length!==4||!/^\d{4}$/.test(pin)){ alert('El PIN debe tener exactamente 4 dígitos'); return; }
+  if((DB.admins||[]).find(a=>a.pin===pin)){ alert('Ese PIN ya existe'); return; }
+  DB.admins = DB.admins||[];
+  DB.admins.push({nombre, pin, rol});
+  if(typeof fbGuardarAdmins==='function') fbGuardarAdmins(DB.admins).catch(console.error);
+  document.getElementById('adm-nombre').value='';
+  document.getElementById('adm-pin').value='';
+  rAdmins();
+}
+
+function eliminarAdmin(idx){
+  const a = (DB.admins||[])[idx]; if(!a) return;
+  if(!confirm('¿Eliminar a "'+a.nombre+'" del panel admin?')) return;
+  DB.admins.splice(idx,1);
+  if(typeof fbGuardarAdmins==='function') fbGuardarAdmins(DB.admins).catch(console.error);
+  rAdmins();
+}
+
+
+let _logCache = [];
+
+function rLogActividad(){
+  const tbody = document.getElementById('log-tabla'); if(!tbody) return;
+  const selA  = document.getElementById('log-f-admin');
+  const fAdmin = selA?.value||'';
+
+  // Poblar selector de admins
+  if(selA){
+    const admins = [...new Set(_logCache.map(l=>l.admin).filter(Boolean))].sort();
+    const cur = selA.value;
+    selA.innerHTML = '<option value="">Todos los usuarios</option>'+
+      admins.map(a=>'<option value="'+a+'"'+(a===cur?' selected':'')+'>'+a+'</option>').join('');
+    if(cur) selA.value=cur;
+  }
+
+  const filtrados = _logCache
+    .filter(l=>!fAdmin||l.admin===fAdmin)
+    .sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''))
+    .slice(0,50);
+
+  if(!filtrados.length){
+    tbody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:2rem;">Sin actividad registrada</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtrados.map(l=>
+    '<tr>'+
+    '<td style="font-family:monospace;font-size:11px;color:var(--text2);white-space:nowrap;">'+(l.fecha||'—')+'</td>'+
+    '<td style="font-size:13px;font-weight:500;">'+l.admin+'</td>'+
+    '<td><span style="font-size:12px;padding:2px 8px;border-radius:5px;background:var(--blue-bg);color:var(--blue-t);border:0.5px solid var(--blue);">'+l.accion+'</span></td>'+
+    '<td style="font-size:12px;color:var(--text2);">'+(l.detalle||'—')+'</td>'+
+    '</tr>'
+  ).join('');
+}
+
+function cargarLog(){
+  // Cargar log de Firebase
+  if(typeof getDocs==='undefined') return;
+  import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js').then(({getDocs,collection})=>{
+    getDocs(collection(window.db,'log_admin')).then(snap=>{
+      _logCache = snap.docs.map(d=>d.data());
+      rLogActividad();
+    }).catch(console.error);
+  });
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -4943,7 +5228,7 @@ function showT(id,el){
   if(id==='t-sa')rSA();
   if(id==='t-pap')rPapelera();
   if(id==='t-almacen')rAlmacen();
-  if(id==='t-stock')rStockTab();
+  if(id==='t-stock'){rStockTab();rStockHistorial();}
   if(id==='t-residuos')rResiduos();
   if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); setTimeout(dibujarGrafAprov, 100); }
   if(id==='t-operadores') setTimeout(()=>{ opSetRango('24h', document.getElementById('op-btn-24h')); }, 50);
@@ -4953,6 +5238,7 @@ function showT(id,el){
   if(id==='t-resumen')rResumenDiario();
   if(id==='t-ejecutivo')initEjecutivo();
   if(id==='t-exportar')initExportar();
+  if(id==='t-admins'){ rAdmins(); cargarLog(); }
   setTimeout(aplicarRol, 50);
 }
 function updMetrics(){
@@ -5672,6 +5958,7 @@ function procEstandar(wb,fileName,fechaProd){
     if(nomMat){opMap[op].materiales.push({nombre:nomMat,skuMat,planificado:planif});mats++;}
   });
   finalizarCarga(opMap,ops,mats,errs,fileName,'estándar');
+  if(typeof fbLogActividad==='function') fbLogActividad('Cargó Excel', fileName+' — '+ops+' OPs');
 }
 
 function procDynamics(wb,fileName,fechaProd){
@@ -5724,6 +6011,7 @@ function procDynamicsTabular(wb,fileName,fechaProd){
     mats++;
   });
   finalizarCarga(opMap,ops,mats,errs,fileName,'Dynamics');
+      if(typeof fbLogActividad==='function') fbLogActividad('Cargó Excel', fileName+' — '+ops+' OPs');
 }
 
 // ── Formato jerárquico original ──
@@ -5848,6 +6136,7 @@ function restaurar(i){
 }
 function vaciar(){
   if(!confirm('¿Vaciar la papelera permanentemente?'))return;
+  if(typeof fbLogActividad==='function') fbLogActividad('Vació papelera', 'Total: '+papelera.length+' registros');
   papelera=[];
   if(typeof fbVaciarPapelera==='function') fbVaciarPapelera().catch(console.error);
   rPapelera();
@@ -5878,6 +6167,7 @@ function cElimReg(){
   if(pendReg===null)return;
   const [el]=DB.registros.splice(pendReg,1);
   if(el._fbId && typeof fbEliminarRegistro==='function') { if(typeof fbPause==='function') fbPause(3000); fbEliminarRegistro(el._fbId); }
+  if(typeof fbLogActividad==='function') fbLogActividad('Eliminó registro', 'OP: '+(el.op||'—')+' · '+el.fecha);
   papelera.unshift({...el,eliminadoEn:new Date().toLocaleString('es-CL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})});
   cModal('modal-reg');updMetrics();rReg();rPlanif();rComp();rPapelera();
 }
