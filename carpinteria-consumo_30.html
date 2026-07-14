@@ -5317,21 +5317,21 @@ function almCargarTabla(){
 
   tbody.innerHTML = skus.map(sku=>{
     const d = porSku[sku];
-    const req = d.total;
+    const req = Math.ceil(d.total);
     const ent = entregado[sku]||0;
     const pend = req - ent;
     const pct  = req>0 ? Math.min(100,ent/req*100) : 0;
-    const over = ent > req*1.05; // más de 5% sobre el requerido
+    const over = ent > req*1.05;
     const ok   = ent >= req*0.98;
     const color= over?'var(--red-t)':ok?'var(--green-t)':'var(--amber-t)';
     const bgCol= over?'var(--red-bg)':ok?'var(--green-bg)':'var(--amber-bg)';
     const estado= over?'⚠ Excedido':ok?'✓ Completo':'En proceso';
     return '<tr style="'+(over?'background:var(--red-bg);':'')+'">'+'<td style="font-family:monospace;font-size:12px;">'+sku+'</td>'+
       '<td style="font-size:12px;">'+d.nombre+'</td>'+
-      '<td style="font-family:monospace;font-weight:600;">'+req.toFixed(2)+'</td>'+
+      '<td style="font-family:monospace;font-weight:600;">'+req+'</td>'+
       '<td style="font-family:monospace;color:var(--amber-t);font-weight:600;">'+ent.toFixed(2)+'</td>'+
       '<td style="font-family:monospace;color:'+(pend>0?'var(--blue-t)':over?'var(--red-t)':'var(--green-t)')+';">'+
-        (pend>0?pend.toFixed(2):over?'+'+Math.abs(pend).toFixed(2):'0.00')+'</td>'+
+        (pend>0?'+'+pend:pend.toFixed(0))+'</td>'+
       '<td><div style="display:flex;align-items:center;gap:6px;">'+
         '<div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;min-width:60px;">'+
           '<div style="height:100%;width:'+pct.toFixed(0)+'%;background:'+color+';border-radius:3px;"></div>'+
@@ -5573,7 +5573,7 @@ function rAlmacenSup(){
   if(tbodyN){
     const skusN = Object.keys(porSkuN).sort();
     tbodyN.innerHTML = skusN.length ? skusN.map(sku=>{
-      const d=porSkuN[sku], req=d.total, ent=entregadoN[sku]||0, pend=req-ent;
+      const d=porSkuN[sku], req=Math.ceil(d.total), ent=entregadoN[sku]||0, pend=req-ent;
       const over=ent>req*1.05, ok=ent>=req*0.98;
       const color=over?'var(--red-t)':ok?'var(--green-t)':'var(--amber-t)';
       const bgCol=over?'var(--red-bg)':ok?'var(--green-bg)':'var(--amber-bg)';
@@ -5581,10 +5581,10 @@ function rAlmacenSup(){
       const pct=req>0?Math.min(100,ent/req*100):0;
       return '<tr style="'+(over?'background:var(--red-bg);':'')+'">'+'<td style="font-family:monospace;font-size:12px;">'+sku+'</td>'+
         '<td style="font-size:12px;">'+d.nombre+'</td>'+
-        '<td style="font-family:monospace;font-weight:600;">'+Math.ceil(req)+'</td>'+
+        '<td style="font-family:monospace;font-weight:600;">'+req+'</td>'+
         '<td style="font-family:monospace;color:var(--amber-t);font-weight:600;">'+ent.toFixed(2)+'</td>'+
         '<td style="font-family:monospace;color:'+(pend>0?'var(--blue-t)':over?'var(--red-t)':'var(--green-t)')+';">'+
-          (pend>0?Math.ceil(pend):over?'+'+Math.ceil(Math.abs(pend)):'0')+'</td>'+
+          (pend>0?'+'+pend:pend.toFixed(0))+'</td>'+
         '<td><div style="display:flex;align-items:center;gap:6px;">'+
           '<div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;min-width:60px;">'+
             '<div style="height:100%;width:'+pct.toFixed(0)+'%;background:'+color+';border-radius:3px;"></div>'+
@@ -5688,11 +5688,47 @@ function almEliminarEntrega(id){
   const admins = DB.admins && DB.admins.length ? DB.admins : [{pin:PIN,rol:'supervisor'}];
   const match = admins.find(a=>a.pin===pin && a.rol==='supervisor');
   if(!match){ alert('PIN incorrecto o sin permisos'); return; }
+
+  const entrega = DB.almacenEntregas.find(e=>e.id===id);
+  const skuAfectado = entrega?.sku;
+
   DB.almacenEntregas = DB.almacenEntregas.filter(e=>e.id!==id);
-  import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js').then(({deleteDoc,doc})=>{
+  import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js').then(({deleteDoc,doc,setDoc})=>{
     deleteDoc(doc(window.db,'almacen_entregas',id)).catch(console.error);
+
+    // Recalcular si sigue habiendo exceso para ese SKU
+    if(skuAfectado){
+      const {lun, dom} = almGetSemana(almSupSemanaOffset);
+      const opsSem = DB.ops.filter(o=>{
+        if(!o.fecha)return false;
+        const m=o.fecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if(!m)return false;
+        const fp=new Date(+m[3],+m[2]-1,+m[1]);
+        const fc=almFechaCorte(fp);fc.setHours(0,0,0,0);
+        return fc>=lun&&fc<=dom;
+      });
+      const req = Math.ceil(opsSem.reduce((s,o)=>s+((o.materiales||[]).find(x=>x.skuMat===skuAfectado)?.planificado||0),0));
+      const ent = DB.almacenEntregas.filter(e=>{
+        const m=(e.fecha||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if(!m)return false;
+        const d=new Date(+m[3],+m[2]-1,+m[1]);d.setHours(0,0,0,0);
+        return d>=lun&&d<=dom&&e.sku===skuAfectado&&e.tipo!=='alerta';
+      }).reduce((s,e)=>s+e.hojas,0);
+
+      // Si ya no hay exceso, eliminar alertas de ese SKU
+      if(req===0 || ent<=req*1.05){
+        const alertas = DB.almacenEntregas.filter(e=>e.tipo==='alerta'&&e.sku===skuAfectado&&!e.leida);
+        alertas.forEach(a=>{
+          a.leida=true;
+          setDoc(doc(window.db,'almacen_entregas',a.id),a).catch(console.error);
+        });
+        DB.almacenEntregas = DB.almacenEntregas.map(e=>
+          e.tipo==='alerta'&&e.sku===skuAfectado ? {...e,leida:true} : e
+        );
+      }
+    }
+    rAlmacenSup();
   });
-  rAlmacenSup();
 }
 
 // ═══════════ SUPERVISOR ═══════════
