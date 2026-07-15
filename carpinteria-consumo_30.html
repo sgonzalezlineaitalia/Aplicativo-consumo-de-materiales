@@ -1149,7 +1149,35 @@ tr:hover td{background:var(--bg3);}
             </div>
           </div>
         </div>
-        <div class="stab" id="t-sa"><p class="ptitle">Sin asignar</p><p class="psub">Registros pendientes de asignación</p><div id="sacont"></div></div>
+        <div class="stab" id="t-sa">
+          <p class="ptitle">Sin asignar</p>
+          <p class="psub">Registros pendientes de asignación</p>
+          <!-- Filtros -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:1rem;">
+            <div style="position:relative;">
+              <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text3);pointer-events:none;"></i>
+              <input type="text" id="sa-f-modelo" placeholder="Modelo..." oninput="rSA()" style="padding:8px 10px 8px 32px;font-size:13px;width:100%;">
+            </div>
+            <div style="position:relative;">
+              <i class="ti ti-palette" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text3);pointer-events:none;"></i>
+              <input type="text" id="sa-f-color" placeholder="Melamina / color..." oninput="rSA()" style="padding:8px 10px 8px 32px;font-size:13px;width:100%;">
+            </div>
+            <select id="sa-f-grosor" onchange="rSA()" style="padding:8px 12px;font-size:13px;">
+              <option value="">Todos los grosores</option>
+              <option value="5.5mm">5.5 mm</option>
+              <option value="12mm">12 mm</option>
+              <option value="16mm">16 mm</option>
+              <option value="19mm">19 mm</option>
+              <option value="28mm">28 mm</option>
+            </select>
+            <div style="position:relative;">
+              <i class="ti ti-message-circle" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text3);pointer-events:none;"></i>
+              <input type="text" id="sa-f-obs" placeholder="Buscar en comentarios..." oninput="rSA()" style="padding:8px 10px 8px 32px;font-size:13px;width:100%;">
+            </div>
+          </div>
+          <div id="sa-count" style="font-size:12px;color:var(--text2);margin-bottom:8px;"></div>
+          <div id="sacont"></div>
+        </div>
         <div class="stab" id="t-excel">
           <p class="ptitle">Cargar planificación</p><p class="psub">Sube el Excel con las OPs del día</p>
 
@@ -6184,10 +6212,37 @@ function limpiarFiltrosComp(){
 
 // SIN ASIGNAR
 function rSA(){
-  const regs=DB.registros.filter(r=>r.sinAsignar);
-  const cont=document.getElementById('sacont');const b=document.getElementById('sabadge');
-  if(b){b.style.display=regs.length?'inline':'none';b.textContent=regs.length;}
-  if(!regs.length){cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:monospace;font-size:13px;"><i class="ti ti-checks" style="font-size:32px;display:block;margin-bottom:8px;"></i>No hay registros pendientes</div>';return;}
+  const fModelo = (document.getElementById('sa-f-modelo')?.value||'').trim().toLowerCase();
+  const fColor  = (document.getElementById('sa-f-color')?.value||'').trim().toLowerCase();
+  const fGrosor = (document.getElementById('sa-f-grosor')?.value||'').toLowerCase();
+  const fObs    = (document.getElementById('sa-f-obs')?.value||'').trim().toLowerCase();
+
+  const regs = DB.registros.filter(r=>{
+    if(!r.sinAsignar) return false;
+    if(fModelo && !(r.modelo||'').toLowerCase().includes(fModelo)) return false;
+    if(fColor  && !(r.color||'').toLowerCase().includes(fColor) && !(r.materiales?.[0]?.nombre||'').toLowerCase().includes(fColor)) return false;
+    if(fGrosor && normGrosor(r.grosor)!==normGrosor(fGrosor)) return false;
+    if(fObs    && !(r.obs||'').toLowerCase().includes(fObs) && !(r.operario||'').toLowerCase().includes(fObs)) return false;
+    return true;
+  });
+
+  const todos = DB.registros.filter(r=>r.sinAsignar);
+  const cont  = document.getElementById('sacont');
+  const count = document.getElementById('sa-count');
+  const badge = document.getElementById('sabadge');
+
+  if(badge){ badge.style.display=todos.length?'inline':'none'; badge.textContent=todos.length; }
+  if(count){
+    count.textContent = fModelo||fColor||fGrosor||fObs
+      ? `Mostrando ${regs.length} de ${todos.length} registros`
+      : `${todos.length} registro${todos.length!==1?'s':''} pendiente${todos.length!==1?'s':''}`;
+  }
+  if(!regs.length){
+    cont.innerHTML='<div style="text-align:center;padding:3rem 1rem;color:var(--text3);font-family:monospace;font-size:13px;">'+
+      (todos.length?'<i class="ti ti-filter-off" style="font-size:32px;display:block;margin-bottom:8px;"></i>Sin resultados para ese filtro':
+      '<i class="ti ti-checks" style="font-size:32px;display:block;margin-bottom:8px;"></i>No hay registros pendientes')+'</div>';
+    return;
+  }
   cont.innerHTML='';
   regs.forEach(r=>{
     const ri=DB.registros.indexOf(r);const an=DB.areas.find(a=>a.id===r.area)?.nombre||r.area;
