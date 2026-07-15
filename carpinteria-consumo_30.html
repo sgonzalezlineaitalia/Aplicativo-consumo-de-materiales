@@ -3735,8 +3735,25 @@ function actualizarPreviewExp(){
 }
 
 function getExportRows(desde, hasta){
-  const allOps  = (supArea ? DB.ops.filter(o=>o.area===supArea.id) : DB.ops)
-    .filter(o => o.fecha && o.fecha >= desde && o.fecha <= hasta);
+  // Parsear fechas dd/mm/yyyy a Date para comparar correctamente
+  const parseFecha = f => {
+    if(!f) return null;
+    const m = f.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if(!m) return null;
+    return new Date(+m[3], +m[2]-1, +m[1]);
+  };
+  const desdeD = parseFecha(desde);
+  const hastaD = parseFecha(hasta);
+
+  const allOps = (supArea ? DB.ops.filter(o=>o.area===supArea.id) : DB.ops)
+    .filter(o => {
+      if(!o.fecha) return false;
+      const d = parseFecha(o.fecha);
+      if(!d) return false;
+      if(desdeD && d < desdeD) return false;
+      if(hastaD && d > hastaD) return false;
+      return true;
+    });
   const allRegs = supArea ? DB.registros.filter(r=>r.area===supArea.id) : DB.registros;
   const opsIds  = new Set(allOps.map(o=>o.op));
   const regs    = allRegs.filter(r=>opsIds.has(r.op));
