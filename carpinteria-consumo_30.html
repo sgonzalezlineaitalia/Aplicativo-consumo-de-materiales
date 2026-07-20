@@ -279,6 +279,11 @@ window.fbInit = async function() {
       DB.almacenEntregas = snap.docs.map(d=>d.data());
       if(typeof almRefresh==='function') almRefresh();
     });
+    onSnapshot(collection(db, "historial_asignaciones"), (snap) => {
+      if(window.fbPaused) return;
+      DB.historialAsignaciones = snap.docs.map(d=>d.data());
+      if(typeof rHistorialAsign==='function' && document.getElementById('t-historial-asign')?.style.display!=='none') rHistorialAsign();
+    });
     onSnapshot(collection(db, "papelera"), (snap) => {
       if(window.fbPaused) return;
       papelera = snap.docs.map(d => ({...d.data(), _fbId: d.id}));
@@ -411,6 +416,13 @@ window.fbLogActividad = async function(accion, detalle) {
 window.fbGuardarEntrega = async function(reg) {
   try { await setDoc(doc(db, "almacen_entregas", reg.id), reg); }
   catch(e) { console.error("Error guardando entrega:", e); }
+};
+
+
+// ─── Historial de asignaciones ───
+window.fbGuardarAsignacion = async function(reg) {
+  try { await setDoc(doc(db, "historial_asignaciones", reg.id), reg); }
+  catch(e) { console.error("Error guardando asignación:", e); }
 };
 
 // Esperar a que el DOM esté listo
@@ -995,6 +1007,7 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-ejecutivo',this)"><i class="ti ti-file-description"></i> Resumen ejecutivo</div>
         <div class="ni" onclick="showT('t-exportar',this)"><i class="ti ti-table-export"></i> Exportar Excel</div>
         <p class="nlbl mt2">Gestión</p>
+        <div class="ni" onclick="showT('t-historial-asign',this)"><i class="ti ti-history"></i> Historial asignaciones</div>
         <div class="ni" onclick="showT('t-sa',this)"><i class="ti ti-clock-exclamation"></i> Sin asignar<span id="sabadge" style="display:none;margin-left:auto;background:var(--amber-bg);color:var(--amber-t);border:0.5px solid var(--amber);font-size:10px;font-family:monospace;padding:1px 6px;border-radius:4px;"></span></div>
         <div class="ni" onclick="showT('t-excel',this)"><i class="ti ti-file-spreadsheet"></i> Cargar Excel</div>
         <div class="ni" onclick="showT('t-maq',this)"><i class="ti ti-tool"></i> Máquinas</div>
@@ -1148,6 +1161,24 @@ tr:hover td{background:var(--bg3);}
               <span class="badge b-maq">Estado</span>
             </div>
           </div>
+        </div>
+
+        <div class="stab" id="t-historial-asign">
+          <p class="ptitle">Historial de Asignaciones</p>
+          <p class="psub">OPs que fueron asignadas manualmente</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:1rem;">
+            <div><label class="lbl">Desde</label><input type="date" id="ha-desde" onchange="rHistorialAsign()"></div>
+            <div><label class="lbl">Hasta</label><input type="date" id="ha-hasta" onchange="rHistorialAsign()"></div>
+            <div><label class="lbl">Asignado por</label><select id="ha-admin" onchange="rHistorialAsign()"><option value="">Todos</option></select></div>
+            <div style="display:flex;align-items:flex-end;">
+              <button class="btn btn-ghost btn-sm" onclick="haExportar()"><i class="ti ti-file-spreadsheet"></i> Exportar</button>
+            </div>
+          </div>
+          <div id="ha-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:1rem;"></div>
+          <div class="dtw"><table>
+            <thead><tr><th>Fecha asignación</th><th>Asignó</th><th>OP asignada</th><th>Modelo</th><th>Color · Grosor</th><th>Modelo original</th><th>Color original</th><th>Obs. operario</th><th>Hojas</th><th>Operario</th></tr></thead>
+            <tbody id="ha-tabla"></tbody>
+          </table></div>
         </div>
         <div class="stab" id="t-sa">
           <p class="ptitle">Sin asignar</p>
@@ -1611,6 +1642,7 @@ const DB = {
   ],
   usuarios: [], // Los operarios viven en Firebase, no hardcodeados
   almacenEntregas: [],
+  historialAsignaciones: [],
   admins: [
     {nombre:'Sebastián González', pin:'4689', rol:'supervisor'},
     {nombre:'Usuario lectura 1',    pin:'4523', rol:'readonly'},
@@ -5776,6 +5808,80 @@ function almEliminarEntrega(id){
   });
 }
 
+
+function rHistorialAsign(){
+  if(!DB.historialAsignaciones) DB.historialAsignaciones=[];
+  const parseFH = f=>{const m=(f||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);if(!m)return null;return new Date(+m[3],+m[2]-1,+m[1]);};
+  const desdeV = document.getElementById('ha-desde')?.value;
+  const hastaV = document.getElementById('ha-hasta')?.value;
+  const fAdmin = document.getElementById('ha-admin')?.value||'';
+  const desdeD = desdeV ? new Date(desdeV) : null;
+  const hastaD = hastaV ? new Date(hastaV) : null;
+
+  // Poblar selector de admins
+  const selA = document.getElementById('ha-admin');
+  if(selA){
+    const admins=[...new Set(DB.historialAsignaciones.map(a=>a.asignadoPor).filter(Boolean))].sort();
+    const cur=selA.value;
+    selA.innerHTML='<option value="">Todos</option>'+admins.map(a=>'<option value="'+a+'"'+(a===cur?' selected':'')+'>'+a+'</option>').join('');
+    if(cur)selA.value=cur;
+  }
+
+  const filtrados = DB.historialAsignaciones.filter(a=>{
+    if(fAdmin && a.asignadoPor!==fAdmin) return false;
+    if(desdeD||hastaD){
+      const d=parseFH(a.fechaAsignacion);
+      if(!d) return false;
+      if(desdeD){const dd=new Date(desdeD);dd.setHours(0,0,0,0);if(d<dd)return false;}
+      if(hastaD){const hd=new Date(hastaD);hd.setHours(23,59,59,999);if(d>hd)return false;}
+    }
+    return true;
+  }).sort((a,b)=>(b.fechaAsignacion||'').localeCompare(a.fechaAsignacion||''));
+
+  // KPIs
+  const kDiv=document.getElementById('ha-kpis');
+  if(kDiv) kDiv.innerHTML=
+    kpiCard('Total asignadas',filtrados.length+'','var(--blue-t)','var(--blue-bg)','var(--blue)','ti-link')+
+    kpiCard('Operarios',new Set(filtrados.map(a=>a.operario)).size+'','var(--text)','var(--bg3)','var(--border)','ti-users')+
+    kpiCard('OPs únicas',new Set(filtrados.map(a=>a.opAsignada)).size+'','var(--amber-t)','var(--amber-bg)','var(--amber)','ti-clipboard-list');
+
+  const tbody=document.getElementById('ha-tabla');if(!tbody)return;
+  if(!filtrados.length){
+    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:2rem;">Sin asignaciones en este período</td></tr>';
+    return;
+  }
+  tbody.innerHTML=filtrados.map(a=>
+    '<tr>'+
+    '<td style="font-family:monospace;font-size:11px;white-space:nowrap;">'+a.fechaAsignacion+'</td>'+
+    '<td style="font-size:12px;font-weight:500;">'+a.asignadoPor+'</td>'+
+    '<td><span class="badge b-op">'+a.opAsignada+'</span></td>'+
+    '<td style="font-size:12px;font-weight:500;">'+a.modelo+'</td>'+
+    '<td style="font-size:12px;">'+a.color+' · '+a.grosor+'</td>'+
+    '<td style="font-size:12px;color:var(--text3);">'+(a.modeloOriginal||'—')+'</td>'+
+    '<td style="font-size:12px;color:var(--text3);">'+(a.colorOriginal||'—')+'</td>'+
+    '<td style="font-size:12px;color:var(--text2);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+(a.obsOriginal||'')+'">'+((a.obsOriginal)||'—')+'</td>'+
+    '<td style="font-family:monospace;color:var(--amber-t);font-weight:500;">'+(a.hojas||0).toFixed(2)+'</td>'+
+    '<td style="font-size:12px;">'+a.operario+'</td>'+
+    '</tr>'
+  ).join('');
+}
+
+function haExportar(){
+  const rows=[
+    ['Historial de Asignaciones'],
+    ['Fecha asignación','Asignó','OP asignada','Modelo OP','Color OP','Grosor OP','Fecha PT','Plan. hjs','Modelo original','Color original','Grosor original','Observación operario','Hojas cortadas','Operario','Máquina','Fecha registro'],
+  ];
+  const tbody=document.getElementById('ha-tabla');
+  if(!DB.historialAsignaciones?.length){alert('Sin datos para exportar');return;}
+  DB.historialAsignaciones.sort((a,b)=>(b.fechaAsignacion||'').localeCompare(a.fechaAsignacion||'')).forEach(a=>{
+    rows.push([a.fechaAsignacion,a.asignadoPor,a.opAsignada,a.modelo,a.color,a.grosor,a.fechaPT||'',a.planificado||0,a.modeloOriginal||'',a.colorOriginal||'',a.grosorOriginal||'',a.obsOriginal||'',a.hojas||0,a.operario,a.maquina||'',a.fecha||'']);
+  });
+  const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='Historial_Asignaciones_'+new Date().toLocaleDateString('es-CL').replace(/\//g,'-')+'.csv';a.click();
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -5827,6 +5933,7 @@ function showT(id,el){
   if(id==='t-almacen')rAlmacen();
   if(id==='t-stock'){rStockTab();rStockHistorial();}
   if(id==='t-residuos')rResiduos();
+  if(id==='t-historial-asign'){ if(!DB.historialAsignaciones)DB.historialAsignaciones=[]; rHistorialAsign(); }
   if(id==='t-almacen-sup'){ almSupSemanaOffset=0; almSupSemana(null); }
   if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); setTimeout(dibujarGrafAprov, 100); }
   if(id==='t-operadores') setTimeout(()=>{ opSetRango('24h', document.getElementById('op-btn-24h')); }, 50);
@@ -6312,18 +6419,54 @@ function rSA(){
   });
 }
 function togSAP(ri){const p=document.getElementById('sap'+ri);if(!p)return;p.style.display=p.style.display==='block'?'none':'block';}
+// Normaliza un modelo para búsqueda flexible: quita guiones, espacios, F→FC etc.
+function normModelo(m){
+  if(!m) return '';
+  let s = m.toLowerCase().replace(/[\s\-]/g,'');
+  // F6049 → fc6049, fc6049 → fc6049
+  if(/^f\d/.test(s)) s = 'fc'+s.slice(1);
+  return s;
+}
+
 function fSA(ri,color,grosor){
   const q=(document.getElementById('sainp'+ri)||{value:''}).value.trim().toLowerCase();
   const cont=document.getElementById('sares'+ri);if(!cont)return;
   const r=DB.registros[ri];
-  const ops=DB.ops.filter(o=>o.area===r.area&&(!q?(o.color===color&&o.grosor===grosor):(o.op.toLowerCase().includes(q)||o.modelo.toLowerCase().includes(q)||o.color.toLowerCase().includes(q))));
-  if(!ops.length){cont.innerHTML='<div style="padding:10px;text-align:center;font-size:12px;color:var(--text3);">Sin resultados</div>';return;}
+
+  const ops=DB.ops.filter(o=>{
+    if(o.area!==r.area) return false;
+    if(!q){
+      // Sin query: mostrar las del mismo color+grosor (sugerencias)
+      return o.color===color && o.grosor===grosor;
+    }
+    const qNorm = normModelo(q);
+    // Buscar en OP exacta
+    if(o.op.toLowerCase().includes(q)) return true;
+    // Buscar en modelo normalizado (F6049 → FC-6049)
+    if(normModelo(o.modelo).includes(qNorm)) return true;
+    // Buscar en modelo directo
+    if(o.modelo.toLowerCase().includes(q)) return true;
+    // Buscar en color
+    if(o.color.toLowerCase().includes(q)) return true;
+    // Buscar en SKU
+    if(o.sku.toLowerCase().includes(q)) return true;
+    return false;
+  }).slice(0,20);
+
+  if(!ops.length){
+    cont.innerHTML='<div style="padding:10px;text-align:center;font-size:12px;color:var(--text3);">Sin resultados — probá con menos letras o solo el número</div>';
+    return;
+  }
   cont.innerHTML='';
   ops.forEach(op=>{
     const d=document.createElement('div');
     d.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:.5px solid var(--border);cursor:pointer;gap:8px;';
+    // Resaltar si el modelo coincide de forma flexible
+    const qNorm=normModelo(q);
+    const modeloMatch=q&&normModelo(op.modelo).includes(qNorm);
     d.innerHTML='<div><div style="font-family:monospace;font-size:11px;color:var(--text2);">'+op.op+'</div>'+
-      '<div style="font-size:13px;font-weight:500;">Mod. '+op.modelo+' · '+op.color+' · '+op.grosor+'</div></div>'+
+      '<div style="font-size:13px;font-weight:500;">'+(modeloMatch?'<span style="color:var(--green-t);">':'')+'Mod. '+op.modelo+(modeloMatch?'</span>':'')+' · '+op.color+' · '+op.grosor+'</div>'+
+      '<div style="font-size:11px;color:var(--text3);">'+(op.fecha||'')+'</div></div>'+
       '<span class="badge b-rec">Asignar</span>';
     d.onmouseover=()=>d.style.background='var(--bg3)';d.onmouseout=()=>d.style.background='';
     d.onclick=()=>selSA(ri,op.op);
@@ -6343,17 +6486,47 @@ function selSA(ri,opId){
 }
 function confSA(ri,opId){
   const op=DB.ops.find(o=>o.op===opId);const r=DB.registros[ri];if(!op||!r)return;
+
+  // Guardar info del registro original antes de sobreescribir
+  const infoOriginal = {
+    modeloOriginal: r.modelo,
+    colorOriginal:  r.color,
+    grosorOriginal: r.grosor,
+    obsOriginal:    r.obs||'',
+    operario:       r.operario,
+    maquina:        r.maquina,
+    fecha:          r.fecha,
+    hojas:          r.materiales?.[0]?.hojas||0,
+  };
+
   r.op=op.op;r.sku=op.sku;r.modelo=op.modelo;r.color=op.color;r.grosor=op.grosor;r.sinAsignar=false;
   const mat=op.materiales.find(m=>m.skuMat===r.materiales[0]?.skuMat)||op.materiales[0];
   if(mat&&r.materiales[0]){r.materiales[0].nombre=mat.nombre;r.materiales[0].skuMat=mat.skuMat;r.materiales[0].planificado=mat.planificado;}
-  // Pausar onSnapshot para que no sobreescriba el cambio local
+
+  // Guardar en historial de asignaciones
+  const asignacion = {
+    id: 'ASIGN-'+Date.now(),
+    fechaAsignacion: new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'}),
+    asignadoPor: (DB.admins||[]).find(a=>a.pin===_pinActual)?.nombre || 'Supervisor',
+    // OP asignada
+    opAsignada:  op.op,
+    modelo:      op.modelo,
+    color:       op.color,
+    grosor:      op.grosor,
+    fechaPT:     op.fecha||'',
+    planificado: mat?.planificado||0,
+    // Info original del registro sin asignar
+    ...infoOriginal,
+    hojas: infoOriginal.hojas,
+  };
+  if(!DB.historialAsignaciones) DB.historialAsignaciones=[];
+  DB.historialAsignaciones.push(asignacion);
+  if(typeof fbGuardarAsignacion==='function') fbGuardarAsignacion(asignacion).catch(console.error);
+
+  // Pausar onSnapshot y actualizar Firebase
   if(typeof fbPause==='function') fbPause(5000);
   if(r._fbId && typeof fbActualizarRegistro==='function'){
-    fbActualizarRegistro(r._fbId, r).then(()=>{
-      console.log('✓ Registro asignado guardado en Firebase:', r._fbId);
-    }).catch(e=>console.error('Error guardando asignación:', e));
-  } else {
-    console.warn('Sin _fbId — el registro no se puede guardar en Firebase');
+    fbActualizarRegistro(r._fbId, r).catch(e=>console.error('Error guardando asignación:', e));
   }
   updMetrics();rReg();rPlanif();rComp();rSA();
 }
