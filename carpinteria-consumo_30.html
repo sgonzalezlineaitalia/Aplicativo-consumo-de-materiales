@@ -1014,6 +1014,7 @@ tr:hover td{background:var(--bg3);}
         <div class="ni" onclick="showT('t-usr',this)"><i class="ti ti-users"></i> Operarios</div>
         <div class="ni" onclick="showT('t-operadores',this)"><i class="ti ti-users"></i> Registros operadores</div>
         <div class="ni" id="ni-admins" onclick="showT('t-admins',this)" style="display:none;"><i class="ti ti-shield-lock"></i> Usuarios admin</div>
+        <div class="ni" id="ni-pool" onclick="showT('t-pool-sinop',this)" style="display:none;"><i class="ti ti-stack-2"></i> Pool sin asignar</div>
         <div class="ni" onclick="showT('t-aprovechamiento',this)"><i class="ti ti-chart-pie"></i> Aprovechamiento</div>
         <div class="ni" onclick="showT('t-almacen-sup',this)"><i class="ti ti-package"></i> Control de Almacén <span id="alm-badge" style="display:none;background:var(--red);color:#fff;font-size:10px;border-radius:10px;padding:1px 6px;margin-left:4px;"></span></div>
         <div class="ni" onclick="showT('t-residuos',this)"><i class="ti ti-trash"></i> Residuos</div>
@@ -1289,6 +1290,44 @@ tr:hover td{background:var(--bg3);}
 
 
 
+
+        <div class="stab" id="t-pool-sinop">
+          <p class="ptitle">Pool sin asignar</p>
+          <p class="psub">Hojas enviadas al pool — agrupadas por SKU y semana de corte</p>
+
+          <!-- Filtros -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:1rem;">
+            <div><label class="lbl">Desde</label><input type="date" id="pool-desde" onchange="rPool()"></div>
+            <div><label class="lbl">Hasta</label><input type="date" id="pool-hasta" onchange="rPool()"></div>
+            <div><label class="lbl">Material</label><select id="pool-f-sku" onchange="rPool()"><option value="">Todos</option></select></div>
+            <div style="display:flex;align-items:flex-end;gap:6px;">
+              <button class="btn btn-ghost btn-sm" onclick="poolSetRango('semana')">Esta semana</button>
+              <button class="btn btn-ghost btn-sm" onclick="poolSetRango('mes')">Este mes</button>
+              <button class="btn btn-ghost btn-sm" onclick="poolExportar()"><i class="ti ti-file-spreadsheet"></i></button>
+            </div>
+          </div>
+
+          <!-- KPIs -->
+          <div id="pool-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.5rem;"></div>
+
+          <!-- Tabla resumen por SKU -->
+          <div class="card" style="margin-bottom:1rem;">
+            <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Resumen por material</p>
+            <div class="dtw"><table>
+              <thead><tr><th>SKU</th><th>Material</th><th>Hojas</th><th>Registros</th><th>Operarios</th></tr></thead>
+              <tbody id="pool-tabla"></tbody>
+            </table></div>
+          </div>
+
+          <!-- Lista de registros -->
+          <div class="card">
+            <p style="font-size:13px;font-weight:600;margin-bottom:10px;">Registros enviados al pool</p>
+            <div class="dtw"><table>
+              <thead><tr><th>Semana</th><th>Fecha registro</th><th>Operario</th><th>Material</th><th>Hojas</th><th>Modelo ref.</th><th>Comentario</th><th>Enviado por</th></tr></thead>
+              <tbody id="pool-detalle"></tbody>
+            </table></div>
+          </div>
+        </div>
         <div class="stab" id="t-admins">
           <p class="ptitle">Usuarios Administradores</p>
           <p class="psub">Accesos al panel de supervisor</p>
@@ -2136,6 +2175,7 @@ function addLam(){
       '<div style="position:relative;margin-bottom:8px;"><i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--text3);pointer-events:none;"></i>'+
       '<input type="text" id="ci'+lid+'" placeholder="OP, modelo..." style="padding:8px 10px 8px 32px;font-size:13px;" oninput="fComp('+lid+')" autocomplete="off"></div>'+
       '<div class="cres" id="cr'+lid+'"></div>'+
+      '<button onclick="selCOPSinAsignar('+lid+')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--amber);border-radius:6px;cursor:pointer;background:var(--amber-bg);color:var(--amber-t);margin:4px 0 8px;width:100%;"><i class="ti ti-help-circle" style="font-size:12px;vertical-align:-1px;"></i> No sé cuál es la OP — registrar sin asignar</button>'+
       '<div id="cf'+lid+'" style="display:none;background:var(--green-bg);border:0.5px solid var(--green);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--green-t);font-family:monospace;margin-bottom:6px;"></div>'+
       '<div class="fc g1" style="flex-wrap:wrap;">'+
         '<button onclick="setSob('+lid+')" style="font-size:11px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:6px;cursor:pointer;background:var(--bg2);color:var(--text2);"><i class="ti ti-recycle" style="font-size:12px;vertical-align:-1px;"></i> Sobrante</button>'+
@@ -2302,6 +2342,68 @@ function fComp(lid){
     cont.appendChild(d);
   });
 }
+function selCOPSinAsignar(lid){
+  const lam = GL(lid); if(!lam) return;
+
+  // Mostrar mini formulario en el panel
+  const cr = document.getElementById('cr'+lid);
+  const cf = document.getElementById('cf'+lid);
+  if(!cr) return;
+
+  cr.innerHTML =
+    '<div style="background:var(--amber-bg);border:0.5px solid var(--amber);border-radius:8px;padding:12px;margin-top:4px;">'+
+      '<p style="font-size:12px;font-weight:600;color:var(--amber-t);margin-bottom:10px;"><i class="ti ti-help-circle" style="font-size:12px;vertical-align:-1px;"></i> Registrar sin OP asignada</p>'+
+      '<div style="margin-bottom:8px;">'+
+        '<label style="font-size:11px;color:var(--amber-t);font-weight:500;">Modelo <span style="opacity:.7;">(obligatorio)</span></label>'+
+        '<input type="text" id="sinop-comp-modelo-'+lid+'" placeholder="Ej: D133A, FB-6086..." style="width:100%;margin-top:3px;font-size:13px;border-color:var(--amber);">'+
+      '</div>'+
+      '<div style="margin-bottom:10px;">'+
+        '<label style="font-size:11px;color:var(--amber-t);font-weight:500;">OP o comentario <span style="opacity:.7;">(opcional)</span></label>'+
+        '<input type="text" id="sinop-comp-obs-'+lid+'" placeholder="Ej: OP09247082, o cualquier referencia..." style="width:100%;margin-top:3px;font-size:13px;">'+
+      '</div>'+
+      '<div style="display:flex;gap:6px;">'+
+        '<button onclick="confirmarSinOPComp('+lid+')" class="btn btn-amber btn-full" style="font-size:12px;"><i class="ti ti-check"></i> Confirmar sin OP</button>'+
+        '<button onclick="document.getElementById(\'cr'+lid+'\').innerHTML=\'\'" class="btn btn-ghost btn-sm">✕</button>'+
+      '</div>'+
+    '</div>';
+}
+
+function confirmarSinOPComp(lid){
+  const modelo = document.getElementById('sinop-comp-modelo-'+lid)?.value.trim();
+  const obs    = document.getElementById('sinop-comp-obs-'+lid)?.value.trim()||'';
+
+  if(!modelo){ 
+    document.getElementById('sinop-comp-modelo-'+lid).style.borderColor='var(--red)';
+    return; 
+  }
+
+  const lam = GL(lid); if(!lam) return;
+  lam.opActual = {
+    opKey:      'SIN-OP-COMP-'+Date.now(),
+    label:      'Sin OP',
+    tipo:       'op',
+    sinAsignar: true,
+    color:      cOP.color,
+    grosor:     cOP.grosor,
+    modelo,
+    obs,
+  };
+
+  // Limpiar el formulario y mostrar confirmación
+  const cr = document.getElementById('cr'+lid);
+  if(cr) cr.innerHTML='';
+  const cf = document.getElementById('cf'+lid);
+  if(cf){ 
+    cf.textContent='✓ Sin OP · Mod. '+modelo+(obs?' · '+obs:'');
+    cf.style.display='block'; 
+    cf.style.background='var(--amber-bg)'; 
+    cf.style.color='var(--amber-t)'; 
+    cf.style.borderColor='var(--amber)'; 
+  }
+  const inst = document.getElementById('inst'+lid);
+  if(inst) inst.innerHTML='Dibujando <strong style="color:var(--amber-t);">Sin OP · '+modelo+'</strong> — arrastrá o usá los atajos';
+}
+
 function selCOP(lid,opId){
   const op=DB.ops.find(o=>o.op===opId);if(!op)return;
   const lam=GL(lid);if(!lam)return;
@@ -2675,13 +2777,36 @@ function _ejecutarGuardar(justif){
   if(typeof fbGuardar === 'function') fbGuardar(reg);
   Object.entries(cCons.opT||{}).forEach(([opKey,hojas])=>{
     if(opKey===cOP.op)return;
-    const oOP=DB.ops.find(o=>o.op===opKey);if(!oOP)return;
-    const oMat=oOP.materiales.find(x=>x.skuMat===m.skuMat)||oOP.materiales[0];if(!oMat)return;
-    const regAuto={area:cArea.id,op:oOP.op,modelo:oOP.modelo,color:oOP.color,grosor:oOP.grosor,sku:oOP.sku,
-      operario:cUser,maquina:cMaq,tipo:'normal',motivo:'Auto: lámina compartida',sinAsignar:false,autoRegistrado:true,
+    // Verificar si es una OP sin asignar (compartida sin saber cuál es)
+    const esSinAsignar = opKey.startsWith('SIN-OP-COMP-');
+    // Obtener metadata de la lámina sin asignar
+    const lamSinOp = esSinAsignar ? Object.values(cLams).flatMap(l=>l.zonas||[]).find(z=>z.opKey===opKey) : null;
+    const modeloSinOp = lamSinOp?.modelo || cOP.modelo;
+    const obsSinOp    = lamSinOp?.obs    || '';
+    const oOP = esSinAsignar ? null : DB.ops.find(o=>o.op===opKey);
+    if(!esSinAsignar && !oOP) return;
+    const oMat = oOP ? (oOP.materiales.find(x=>x.skuMat===m.skuMat)||oOP.materiales[0]) : null;
+    // Para sinAsignar usar la misma melamina que la OP principal
+    const matNombre = oMat ? oMat.nombre : m.nombre;
+    const matSku    = oMat ? oMat.skuMat : m.skuMat;
+    const matPlan   = oMat ? oMat.planificado : 0;
+    const regAuto={
+      area:cArea.id,
+      op:          esSinAsignar ? opKey : oOP.op,
+      sku:         esSinAsignar ? 'SIN-OP' : oOP.sku,
+      modelo:      esSinAsignar ? modeloSinOp : oOP.modelo,
+      color:       esSinAsignar ? cOP.color  : oOP.color,
+      grosor:      esSinAsignar ? cOP.grosor : oOP.grosor,
+      operario:cUser,maquina:cMaq,tipo:'normal',
+      motivo:esSinAsignar?'Sin OP — lámina compartida':'Auto: lámina compartida',
+      sinAsignar:esSinAsignar,
+      autoRegistrado:true,
+      obs: esSinAsignar ? (obsSinOp||'Compartida con '+cOP.op+' · '+cOP.modelo) : '',
       fechaRegistro,
       laminas: laminasGuardadas,
-      materiales:[{nombre:oMat.nombre,skuMat:oMat.skuMat,hojas,sobrante:0,reutilizado:0,planificado:oMat.planificado}],fecha};
+      materiales:[{nombre:matNombre,skuMat:matSku,hojas,sobrante:0,reutilizado:0,planificado:matPlan}],
+      fecha
+    };
     DB.registros.push(regAuto);
     if(typeof fbGuardar === 'function') fbGuardar(regAuto);
   });
@@ -5114,6 +5239,8 @@ function aplicarRol(){
   // Tab admins solo visible para supervisor completo
   const niAdmins = document.getElementById('ni-admins');
   if(niAdmins) niAdmins.style.display = esReadOnly ? 'none' : 'flex';
+  const niPool = document.getElementById('ni-pool');
+  if(niPool) niPool.style.display = 'flex'; // visible para todos
 
   // Ocultar botones destructivos en readonly
   document.querySelectorAll('.btn-red').forEach(b=>{
@@ -5882,6 +6009,140 @@ function haExportar(){
   a.download='Historial_Asignaciones_'+new Date().toLocaleDateString('es-CL').replace(/\//g,'-')+'.csv';a.click();
 }
 
+
+// ═══════════ POOL SIN ASIGNAR ═══════════
+
+function poolSetRango(rango){
+  const hoy = new Date();
+  const dow = hoy.getDay();
+  if(rango==='semana'){
+    const lun = new Date(hoy); lun.setDate(hoy.getDate()-(dow===0?6:dow-1)); lun.setHours(0,0,0,0);
+    const dom = new Date(lun); dom.setDate(lun.getDate()+6);
+    document.getElementById('pool-desde').value = lun.toISOString().slice(0,10);
+    document.getElementById('pool-hasta').value = dom.toISOString().slice(0,10);
+  } else if(rango==='mes'){
+    const d1 = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const d2 = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0);
+    document.getElementById('pool-desde').value = d1.toISOString().slice(0,10);
+    document.getElementById('pool-hasta').value = d2.toISOString().slice(0,10);
+  }
+  rPool();
+}
+
+function getLunSemanaStr(fechaStr){
+  const m=(fechaStr||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if(!m) return '—';
+  const d=new Date(+m[3],+m[2]-1,+m[1]);
+  const dow=d.getDay();
+  const lun=new Date(d);lun.setDate(d.getDate()-(dow===0?6:dow-1));
+  const dom=new Date(lun);dom.setDate(lun.getDate()+6);
+  const fmt=x=>x.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit'});
+  return fmt(lun)+' – '+fmt(dom);
+}
+
+function rPool(){
+  const desdeV = document.getElementById('pool-desde')?.value;
+  const hastaV = document.getElementById('pool-hasta')?.value;
+  const fSku   = document.getElementById('pool-f-sku')?.value||'';
+
+  const parseFR = f=>{const m=(f||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);if(!m)return null;const d=new Date(+m[3],+m[2]-1,+m[1]);d.setHours(0,0,0,0);return d;};
+  const desdeD = desdeV ? new Date(desdeV) : null;
+  const hastaD = hastaV ? new Date(hastaV) : null;
+
+  // Filtrar registros en pool
+  let regs = DB.registros.filter(r=>{
+    if(!r.enPool) return false;
+    const f = parseFR(r.fechaRegistro||r.fecha);
+    if(!f) return false;
+    if(desdeD && f < desdeD) return false;
+    if(hastaD && f > hastaD) return false;
+    return true;
+  });
+
+  // Poblar selector de materiales
+  const selSku = document.getElementById('pool-f-sku');
+  if(selSku){
+    const skus = [...new Set(regs.map(r=>r.materiales?.[0]?.skuMat).filter(Boolean))].sort();
+    const cur  = selSku.value;
+    selSku.innerHTML = '<option value="">Todos los materiales</option>'+
+      skus.map(s=>'<option value="'+s+'"'+(s===cur?' selected':'')+'>'+s+'</option>').join('');
+    if(cur) selSku.value=cur;
+  }
+
+  if(fSku) regs = regs.filter(r=>r.materiales?.[0]?.skuMat===fSku);
+
+  // KPIs
+  const totalHojas = regs.reduce((s,r)=>s+(r.materiales?.[0]?.hojas||0),0);
+  const kDiv = document.getElementById('pool-kpis');
+  if(kDiv) kDiv.innerHTML =
+    kpiCard('Total hojas en pool', totalHojas.toFixed(2), 'var(--amber-t)', 'var(--amber-bg)', 'var(--amber)', 'ti-stack-2')+
+    kpiCard('Materiales distintos', new Set(regs.map(r=>r.materiales?.[0]?.skuMat).filter(Boolean)).size+'', 'var(--blue-t)', 'var(--blue-bg)', 'var(--blue)', 'ti-palette')+
+    kpiCard('Registros', regs.length+'', 'var(--text)', 'var(--bg3)', 'var(--border)', 'ti-clipboard-list');
+
+  // Resumen por SKU
+  const porSku = {};
+  regs.forEach(r=>{
+    const mat=r.materiales?.[0];if(!mat)return;
+    const sku=mat.skuMat||'—';
+    if(!porSku[sku])porSku[sku]={nombre:mat.nombre||sku,hojas:0,n:0,ops:new Set()};
+    porSku[sku].hojas+=mat.hojas||0;porSku[sku].n++;porSku[sku].ops.add(r.operario||'—');
+  });
+  const tbody=document.getElementById('pool-tabla');
+  if(tbody) tbody.innerHTML=Object.entries(porSku).sort((a,b)=>b[1].hojas-a[1].hojas).map(([sku,d])=>
+    '<tr><td style="font-family:monospace;font-size:12px;">'+sku+'</td>'+
+    '<td style="font-size:12px;font-weight:500;">'+d.nombre+'</td>'+
+    '<td style="font-family:monospace;font-weight:700;color:var(--amber-t);">'+d.hojas.toFixed(3)+'</td>'+
+    '<td style="font-family:monospace;color:var(--text2);">'+d.n+'</td>'+
+    '<td style="font-size:12px;color:var(--text2);">'+Array.from(d.ops).join(', ')+'</td></tr>'
+  ).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:2rem;">Sin registros en el pool para este período</td></tr>';
+
+  // Lista detalle
+  const tdet=document.getElementById('pool-detalle');
+  if(tdet){
+    const ord=[...regs].sort((a,b)=>(b.fechaRegistro||b.fecha||'').localeCompare(a.fechaRegistro||a.fecha||''));
+    tdet.innerHTML=ord.length?ord.map(r=>{
+      const mat=r.materiales?.[0];
+      const semana=getLunSemanaStr(r.fechaRegistro||r.fecha);
+      return '<tr>'+
+        '<td style="font-size:11px;font-family:monospace;color:var(--text2);white-space:nowrap;">'+semana+'</td>'+
+        '<td style="font-family:monospace;font-size:11px;white-space:nowrap;">'+(r.fechaRegistro||r.fecha||'—')+'</td>'+
+        '<td style="font-size:12px;">'+r.operario+'</td>'+
+        '<td style="font-size:12px;">'+(mat?.nombre||'—')+'</td>'+
+        '<td style="font-family:monospace;color:var(--amber-t);font-weight:600;">'+(mat?.hojas||0).toFixed(3)+'</td>'+
+        '<td style="font-size:12px;color:var(--text2);">'+(r.modelo||'—')+'</td>'+
+        '<td style="font-size:11px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+(r.obs||'')+'">'+( r.obs||'—')+'</td>'+
+        '<td style="font-size:11px;color:var(--text3);">'+(r.enviadoAlPoolPor||'—')+'</td>'+
+        '</tr>';
+    }).join(''):'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:1rem;">Sin registros</td></tr>';
+  }
+}
+
+function poolExportar(){
+  const {lun, dom} = almGetSemana(poolSemanaOffset);
+  const fmt = d => d.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const parseFR = f=>{const m=(f||'').match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);if(!m)return null;return new Date(+m[3],+m[2]-1,+m[1]);};
+  const regs = DB.registros.filter(r=>{
+    if(!r.sinAsignar)return false;
+    const f=parseFR(r.fechaRegistro||r.fecha);if(!f)return false;
+    f.setHours(0,0,0,0);return f>=lun&&f<=dom;
+  });
+  const rows=[
+    ['Pool de Hojas Sin Asignar — Semana: '+fmt(lun)+' al '+fmt(dom)],
+    [],
+    ['RESUMEN POR SKU'],
+    ['SKU','Material','Hojas sin asignar','Registros'],
+  ];
+  const porSku={};
+  regs.forEach(r=>{const mat=r.materiales?.[0];if(!mat)return;const sku=mat.skuMat||'—';if(!porSku[sku])porSku[sku]={nombre:mat.nombre||sku,hojas:0,n:0};porSku[sku].hojas+=mat.hojas||0;porSku[sku].n++;});
+  Object.entries(porSku).sort((a,b)=>b[1].hojas-a[1].hojas).forEach(([sku,d])=>rows.push([sku,d.nombre,d.hojas.toFixed(3),d.n]));
+  rows.push([],['DETALLE'],['Fecha/Hora','Operario','SKU','Material','Hojas','Modelo ref.','Comentario']);
+  regs.forEach(r=>{const mat=r.materiales?.[0];rows.push([r.fechaRegistro||r.fecha||'',r.operario,mat?.skuMat||'',mat?.nombre||'',mat?.hojas||0,r.modelo||'',r.obs||'']);});
+  const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='Pool_SinAsignar_'+fmt(lun).replace(/\//g,'-')+'_al_'+fmt(dom).replace(/\//g,'-')+'.csv';a.click();
+}
+
 // ═══════════ SUPERVISOR ═══════════
 function initSup(){
   supArea=null;
@@ -5934,6 +6195,7 @@ function showT(id,el){
   if(id==='t-stock'){rStockTab();rStockHistorial();}
   if(id==='t-residuos')rResiduos();
   if(id==='t-historial-asign'){ if(!DB.historialAsignaciones)DB.historialAsignaciones=[]; rHistorialAsign(); }
+  if(id==='t-pool-sinop'){ poolSetRango('semana'); }
   if(id==='t-almacen-sup'){ almSupSemanaOffset=0; almSupSemana(null); }
   if(id==='t-aprovechamiento'){ aprovSetRango(aprovRango, document.getElementById('aprov-btn-'+aprovRango)); rAprovechamiento(); setTimeout(dibujarGrafAprov, 100); }
   if(id==='t-operadores') setTimeout(()=>{ opSetRango('24h', document.getElementById('op-btn-24h')); }, 50);
@@ -6370,7 +6632,6 @@ function rSA(){
   cont.innerHTML='';
   regs.forEach(r=>{
     const ri=DB.registros.indexOf(r);const an=DB.areas.find(a=>a.id===r.area)?.nombre||r.area;
-
     // Buscar sugerencias automáticas por color+grosor+modelo
     const sugeridas = DB.ops.filter(o=>{
       if(o.area!==r.area) return false;
@@ -6390,6 +6651,7 @@ function rSA(){
           '<p style="font-size:12px;color:var(--text2);margin-top:4px;">'+r.materiales.map(m=>m.nombre+': <strong style="font-family:monospace;color:var(--amber-t);">'+m.hojas.toFixed(3)+' hjs</strong>').join(' · ')+'</p>'+
         '</div>'+
         '<button class="btn btn-amber btn-sm" onclick="togSAP('+ri+')"><i class="ti ti-link"></i> Asignar OP</button>'+
+        '<button class="btn btn-ghost btn-sm" onclick="enviarAlPool('+ri+')" title="Enviar al pool sin asignar" style="font-size:11px;color:var(--text3);"><i class="ti ti-inbox"></i> Pool</button>'+
       '</div>'+
       '<div class="saap" id="sap'+ri+'">'+
         // Sugerencias automáticas
@@ -6419,6 +6681,37 @@ function rSA(){
   });
 }
 function togSAP(ri){const p=document.getElementById('sap'+ri);if(!p)return;p.style.display=p.style.display==='block'?'none':'block';}
+
+function enviarAlPool(ri){
+  const r = DB.registros[ri]; if(!r) return;
+  // Solo supervisor completo puede enviar al pool
+  const pin = prompt('Ingresá tu PIN para enviar esta OP al pool:');
+  if(!pin) return;
+  const admins = DB.admins && DB.admins.length ? DB.admins : [{pin:PIN, rol:'supervisor'}];
+  const match = admins.find(a=>a.pin===pin && a.rol==='supervisor');
+  if(!match){ alert('PIN incorrecto o sin permisos para esta acción'); return; }
+
+  const mat = r.materiales?.[0];
+  if(!confirm('¿Enviar al pool?\n'+
+    'Material: '+(mat?.nombre||'—')+'\n'+
+    'Hojas: '+(mat?.hojas||0)+'\n'+
+    'Operario: '+r.operario+'\n\n'+
+    'Este registro ya NO aparecerá en "Sin asignar"')) return;
+
+  // Marcar como enviado al pool (quitar de sinAsignar, marcar como pool)
+  r.sinAsignar = false;
+  r.enPool = true;
+  r.enviadoAlPoolPor = match.nombre || 'Supervisor';
+  r.enviadoAlPoolFecha = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})+
+    ' '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
+
+  if(typeof fbPause==='function') fbPause(3000);
+  if(r._fbId && typeof fbActualizarRegistro==='function'){
+    fbActualizarRegistro(r._fbId, r).catch(console.error);
+  }
+  updMetrics(); rReg(); rSA();
+  if(typeof rPool==='function') rPool();
+}
 // Normaliza un modelo para búsqueda flexible: quita guiones, espacios, F→FC etc.
 function normModelo(m){
   if(!m) return '';
@@ -6475,19 +6768,53 @@ function fSA(ri,color,grosor){
 }
 function selSA(ri,opId){
   const op=DB.ops.find(o=>o.op===opId);const conf=document.getElementById('saconf'+ri);if(!op||!conf)return;
-  conf.style.display='block';
-  conf.innerHTML='<div style="background:var(--green-bg);border:.5px solid var(--green);border-radius:8px;padding:10px 12px;margin-bottom:8px;">'+
-    '<p style="font-size:12px;color:var(--green-t);margin-bottom:4px;">¿Asignar a esta OP?</p>'+
-    '<p style="font-size:14px;font-weight:600;color:var(--green-t);">'+op.op+' · Mod. '+op.modelo+' · '+op.color+'</p></div>'+
-    '<div class="flex g1">'+
-      '<button class="btn btn-green btn-full" onclick="confSA('+ri+',\''+opId+'\')"><i class="ti ti-check"></i> Confirmar</button>'+
-      '<button class="btn btn-ghost" onclick="document.getElementById(\'saconf'+ri+'\').style.display=\'none\'">Cancelar</button>'+
-    '</div>';
-}
-function confSA(ri,opId){
-  const op=DB.ops.find(o=>o.op===opId);const r=DB.registros[ri];if(!op||!r)return;
+  const r=DB.registros[ri];
 
-  // Guardar info del registro original antes de sobreescribir
+  // Buscar material que coincida con el del registro
+  const matExacto = op.materiales?.find(m=>m.skuMat===r.materiales?.[0]?.skuMat);
+  const matColor  = op.materiales?.find(m=>m.nombre?.toLowerCase().includes((r.color||'').toLowerCase()));
+  const matMatch  = matExacto || matColor;
+
+  conf.style.display='block';
+
+  // Si hay múltiples materiales y no hay coincidencia exacta, pedir que elija
+  if(op.materiales?.length > 1 && !matExacto){
+    conf.innerHTML=
+      '<div style="background:var(--amber-bg);border:.5px solid var(--amber);border-radius:8px;padding:12px;margin-bottom:8px;">'+
+        '<p style="font-size:12px;font-weight:600;color:var(--amber-t);margin-bottom:8px;">⚠ Esta OP tiene '+op.materiales.length+' materiales — elegí el que corresponde:</p>'+
+        op.materiales.map((mat,i)=>
+          '<div onclick="confSA('+ri+',\''+opId+'\','+i+')" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer;background:var(--bg2);" '+
+          'onmouseover="this.style.borderColor=\'var(--green)\';this.style.background=\'var(--green-bg)\'" '+
+          'onmouseout="this.style.borderColor=\'var(--border)\';this.style.background=\'var(--bg2)\'">'+
+            '<span style="font-size:12px;font-weight:600;color:var(--text);">'+mat.nombre+'</span>'+
+            '<span style="font-size:11px;color:var(--text3);font-family:monospace;margin-left:8px;">'+mat.skuMat+'</span>'+
+            '<span style="font-size:11px;color:var(--amber-t);margin-left:8px;">'+mat.planificado+' hjs planif.</span>'+
+          '</div>'
+        ).join('')+
+        '<button onclick="document.getElementById(\'saconf'+ri+'\').style.display=\'none\'" style="font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;margin-top:4px;">Cancelar</button>'+
+      '</div>';
+  } else {
+    // Material único o coincidencia exacta — confirmar directo
+    const matIdx = matMatch ? op.materiales.indexOf(matMatch) : 0;
+    conf.innerHTML=
+      '<div style="background:var(--green-bg);border:.5px solid var(--green);border-radius:8px;padding:10px 12px;margin-bottom:8px;">'+
+        '<p style="font-size:12px;color:var(--green-t);margin-bottom:4px;">¿Asignar a esta OP?</p>'+
+        '<p style="font-size:14px;font-weight:600;color:var(--green-t);">'+op.op+' · Mod. '+op.modelo+' · '+op.color+'</p>'+
+        (matMatch?'<p style="font-size:12px;color:var(--green-t);opacity:.8;">Material: '+matMatch.nombre+' · '+matMatch.planificado+' hjs planif.</p>':'')+
+      '</div>'+
+      '<div class="flex g1">'+
+        '<button class="btn btn-green btn-full" onclick="confSA('+ri+',\''+opId+'\','+matIdx+')"><i class="ti ti-check"></i> Confirmar</button>'+
+        '<button class="btn btn-ghost" onclick="document.getElementById(\'saconf'+ri+'\').style.display=\'none\'">Cancelar</button>'+
+      '</div>';
+  }
+}
+
+function confSA(ri, opId, matIdx){
+  const op=DB.ops.find(o=>o.op===opId); const r=DB.registros[ri]; if(!op||!r) return;
+  matIdx = matIdx ?? 0;
+  const mat = op.materiales?.[matIdx] || op.materiales?.[0];
+
+  // Guardar info original antes de sobreescribir
   const infoOriginal = {
     modeloOriginal: r.modelo,
     colorOriginal:  r.color,
@@ -6499,36 +6826,36 @@ function confSA(ri,opId){
     hojas:          r.materiales?.[0]?.hojas||0,
   };
 
-  r.op=op.op;r.sku=op.sku;r.modelo=op.modelo;r.color=op.color;r.grosor=op.grosor;r.sinAsignar=false;
-  const mat=op.materiales.find(m=>m.skuMat===r.materiales[0]?.skuMat)||op.materiales[0];
-  if(mat&&r.materiales[0]){r.materiales[0].nombre=mat.nombre;r.materiales[0].skuMat=mat.skuMat;r.materiales[0].planificado=mat.planificado;}
+  r.op=op.op; r.sku=op.sku; r.modelo=op.modelo; r.color=op.color; r.grosor=op.grosor; r.sinAsignar=false;
+  if(mat && r.materiales?.[0]){
+    r.materiales[0].nombre     = mat.nombre;
+    r.materiales[0].skuMat     = mat.skuMat;
+    r.materiales[0].planificado= mat.planificado;
+  }
 
-  // Guardar en historial de asignaciones
+  // Guardar en historial
   const asignacion = {
     id: 'ASIGN-'+Date.now(),
     fechaAsignacion: new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'}),
     asignadoPor: (DB.admins||[]).find(a=>a.pin===_pinActual)?.nombre || 'Supervisor',
-    // OP asignada
     opAsignada:  op.op,
     modelo:      op.modelo,
     color:       op.color,
     grosor:      op.grosor,
     fechaPT:     op.fecha||'',
     planificado: mat?.planificado||0,
-    // Info original del registro sin asignar
+    materialAsignado: mat?.nombre||'',
     ...infoOriginal,
-    hojas: infoOriginal.hojas,
   };
   if(!DB.historialAsignaciones) DB.historialAsignaciones=[];
   DB.historialAsignaciones.push(asignacion);
   if(typeof fbGuardarAsignacion==='function') fbGuardarAsignacion(asignacion).catch(console.error);
 
-  // Pausar onSnapshot y actualizar Firebase
   if(typeof fbPause==='function') fbPause(5000);
   if(r._fbId && typeof fbActualizarRegistro==='function'){
-    fbActualizarRegistro(r._fbId, r).catch(e=>console.error('Error guardando asignación:', e));
+    fbActualizarRegistro(r._fbId, r).catch(e=>console.error('Error:', e));
   }
-  updMetrics();rReg();rPlanif();rComp();rSA();
+  updMetrics(); rReg(); rPlanif(); rComp(); rSA();
 }
 
 // MÁQUINAS
